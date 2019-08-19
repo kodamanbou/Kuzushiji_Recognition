@@ -14,5 +14,7 @@ image_size = 64
 
 
 class YOLO:
-    def __init__(self):
-        print('wtf')
+    def __init__(self, class_num, anchors, use_smooth_label=False, use_focal_loss=False,
+                 batch_norm_decay=0.999, weight_decay=5e-4, use_static_shape=True):
+        self.class_num = class_num
+        self.anchors = anchors
