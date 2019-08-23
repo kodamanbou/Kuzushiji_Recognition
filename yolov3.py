@@ -114,6 +114,8 @@ def yolov3(inputs, class_num, is_training=False):
         inter2 = upsample_layer(inter2, route1.get_shape().as_list())
         concat2 = tf.concat([inter2, route1], axis=3)
 
+        _, feature_map3 = yolo_block(concat2, 128, is_training=is_training)
+
 
 class Graph:
     def __init__(self, class_num, anchors, use_label_smooth=False, use_focal_loss=False):
