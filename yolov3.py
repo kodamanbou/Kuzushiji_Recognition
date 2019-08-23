@@ -24,8 +24,10 @@ def conv2d(inputs, filters, kernel_size, strides=1, is_training=False):
     if strides > 1:
         inputs = _fixed_padding(inputs, kernel_size)
 
+    regularizer = tf.contrib.layers.l2_regularizer(5e-4)
     inputs = tf.layers.conv2d(inputs, filters, kernel_size, strides=strides,
-                              padding=('same' if strides == 1 else 'valid'))
+                              padding=('same' if strides == 1 else 'valid'),
+                              kernel_regularizer=regularizer)
     inputs = tf.nn.leaky_relu(tf.layers.batch_normalization(inputs, epsilon=1e-05, training=is_training))
 
     return inputs
@@ -41,35 +43,34 @@ def darknet53_body(inputs, is_training=False):
 
         return net
 
-    with tf.variable_scope('darknet53_body'):
-        net = conv2d(inputs, 32, 3, strides=1, is_training=is_training)
-        net = conv2d(net, 64, 3, strides=2, is_training=is_training)
+    net = conv2d(inputs, 32, 3, strides=1, is_training=is_training)
+    net = conv2d(net, 64, 3, strides=2, is_training=is_training)
 
-        net = res_block(net, 32)
+    net = res_block(net, 32)
 
-        net = conv2d(net, 128, 3, strides=2, is_training=is_training)
+    net = conv2d(net, 128, 3, strides=2, is_training=is_training)
 
-        for i in range(2):
-            net = res_block(net, 64)
+    for i in range(2):
+        net = res_block(net, 64)
 
-        net = conv2d(net, 256, 3, strides=2, is_training=is_training)
+    net = conv2d(net, 256, 3, strides=2, is_training=is_training)
 
-        for i in range(8):
-            net = res_block(net, 128)
+    for i in range(8):
+        net = res_block(net, 128)
 
-        route1 = net
-        net = conv2d(net, 512, 3, strides=2, is_training=is_training)
+    route1 = net
+    net = conv2d(net, 512, 3, strides=2, is_training=is_training)
 
-        for i in range(8):
-            net = res_block(net, 256)
+    for i in range(8):
+        net = res_block(net, 256)
 
-        route2 = net
-        net = conv2d(net, 1024, 3, strides=2, is_training=is_training)
+    route2 = net
+    net = conv2d(net, 1024, 3, strides=2, is_training=is_training)
 
-        for i in range(4):
-            net = res_block(net, 512)
+    for i in range(4):
+        net = res_block(net, 512)
 
-        route3 = net
+    route3 = net
 
     return route1, route2, route3
 
@@ -92,31 +93,6 @@ def upsample_layer(inputs, out_shape):
     return inputs
 
 
-def yolov3(inputs, class_num, is_training=False):
-    image_size = tf.shape(inputs)[1:3]
-
-    route1, route2, route3 = darknet53_body(inputs, is_training=is_training)
-
-    with tf.variable_scope('yolov3_head'):
-        inter1, net = yolo_block(route3, 512, is_training=is_training)
-        feature_map1 = tf.layers.conv2d(net, 3 * (5 + class_num), 1, strides=1)
-        feature_map1 = tf.identity(feature_map1, name='feature_map_1')
-
-        inter1 = conv2d(inter1, 256, 1, is_training=is_training)
-        inter1 = upsample_layer(inter1, route2.get_shape().as_list())
-        concat1 = tf.concat([inter1, route2], axis=3)
-
-        inter2, net = yolo_block(concat1, 256, is_training=is_training)
-        feature_map2 = tf.layers.conv2d(net, 3 * (5 + class_num), 1, strides=1)
-        feature_map2 = tf.identity(feature_map2, name='feature_map_2')
-
-        inter2 = conv2d(inter2, 128, 1, is_training=is_training)
-        inter2 = upsample_layer(inter2, route1.get_shape().as_list())
-        concat2 = tf.concat([inter2, route1], axis=3)
-
-        _, feature_map3 = yolo_block(concat2, 128, is_training=is_training)
-
-
 class Graph:
     def __init__(self, class_num, anchors, use_label_smooth=False, use_focal_loss=False):
         self.class_num = class_num
@@ -124,5 +100,38 @@ class Graph:
         self.use_label_smooth = use_label_smooth
         self.use_focal_loss = use_focal_loss
 
-        self.x = tf.placeholder(tf.float32, shape=[None, 416, 416, 3], name='X')
-        self.is_training = tf.placeholder_with_default(False, shape=None, name='is_training')
+    def forward(self, inputs, is_training=False, reuse=False):
+        self.image_size = tf.shape(inputs)[1:3]
+
+        with tf.variable_scope('darknet53_body'):
+            route1, route2, route3 = darknet53_body(inputs, is_training=is_training)
+
+        with tf.variable_scope('yolov3_head'):
+            inter1, net = yolo_block(route3, 512, is_training=is_training)
+            feature_map1 = tf.layers.conv2d(net, 3 * (5 + self.class_num), 1, strides=1)
+            feature_map1 = tf.identity(feature_map1, name='feature_map_1')
+
+            inter1 = conv2d(inter1, 256, 1, is_training=is_training)
+            inter1 = upsample_layer(inter1, route2.get_shape().as_list())
+            concat1 = tf.concat([inter1, route2], axis=3)
+
+            inter2, net = yolo_block(concat1, 256, is_training=is_training)
+            feature_map2 = tf.layers.conv2d(net, 3 * (5 + self.class_num), 1, strides=1)
+            feature_map2 = tf.identity(feature_map2, name='feature_map_2')
+
+            inter2 = conv2d(inter2, 128, 1, is_training=is_training)
+            inter2 = upsample_layer(inter2, route1.get_shape().as_list())
+            concat2 = tf.concat([inter2, route1], axis=3)
+
+            _, feature_map3 = yolo_block(concat2, 128, is_training=is_training)
+            feature_map3 = tf.layers.conv2d(feature_map3, 3 * (5 + self.class_num), 1, strides=1)
+            feature_map3 = tf.identity(feature_map3, name='feature_map_3')
+
+        return feature_map1, feature_map2, feature_map3
+
+    def reorg_layer(self, feature_map, anchors):
+        grid_size = feature_map.get_shape().as_list()[1:3]
+        ratio = tf.cast(self.image_size / grid_size, tf.float32)
+        rescaled_anchors = [(anchor[0] / ratio[1], anchor[1] / ratio[0]) for anchor in anchors]
+
+        feature_map = tf.reshape(feature_map, [-1, grid_size[0], grid_size[1], 3, 5 + self.class_num])
