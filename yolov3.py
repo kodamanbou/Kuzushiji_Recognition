@@ -100,15 +100,27 @@ def yolov3(inputs, class_num, is_training=False):
     with tf.variable_scope('yolov3_head'):
         inter1, net = yolo_block(route3, 512, is_training=is_training)
         feature_map1 = tf.layers.conv2d(net, 3 * (5 + class_num), 1, strides=1)
+        feature_map1 = tf.identity(feature_map1, name='feature_map_1')
+
+        inter1 = conv2d(inter1, 256, 1, is_training=is_training)
+        inter1 = upsample_layer(inter1, route2.get_shape().as_list())
+        concat1 = tf.concat([inter1, route2], axis=3)
+
+        inter2, net = yolo_block(concat1, 256, is_training=is_training)
+        feature_map2 = tf.layers.conv2d(net, 3 * (5 + class_num), 1, strides=1)
+        feature_map2 = tf.identity(feature_map2, name='feature_map_2')
+
+        inter2 = conv2d(inter2, 128, 1, is_training=is_training)
+        inter2 = upsample_layer(inter2, route1.get_shape().as_list())
+        concat2 = tf.concat([inter2, route1], axis=3)
 
 
 class Graph:
-    def __init__(self, class_num, anchors, use_label_smooth=False, use_focal_loss=False, use_static_shape=True):
+    def __init__(self, class_num, anchors, use_label_smooth=False, use_focal_loss=False):
         self.class_num = class_num
         self.anchors = anchors
         self.use_label_smooth = use_label_smooth
         self.use_focal_loss = use_focal_loss
-        self.use_static_shape = use_static_shape
 
         self.x = tf.placeholder(tf.float32, shape=[None, 416, 416, 3], name='X')
         self.is_training = tf.placeholder_with_default(False, shape=None, name='is_training')
