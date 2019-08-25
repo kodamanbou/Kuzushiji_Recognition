@@ -135,3 +135,17 @@ class Graph:
         rescaled_anchors = [(anchor[0] / ratio[1], anchor[1] / ratio[0]) for anchor in anchors]
 
         feature_map = tf.reshape(feature_map, [-1, grid_size[0], grid_size[1], 3, 5 + self.class_num])
+
+        box_centers, box_sizes, conf_logits, prob_logits = tf.split(feature_map, [2, 2, 1, self.class_num], axis=-1)
+        box_centers = tf.nn.sigmoid(box_centers)
+
+        grid_x = tf.range(grid_size[1], dtype=tf.int32)
+        grid_y = tf.range(grid_size[0], dtype=tf.int32)
+        grid_x, grid_y = tf.meshgrid(grid_x, grid_y)
+        x_offset = tf.reshape(grid_x, (-1, 1))
+        y_offset = tf.reshape(grid_y, (-1, 1))
+        xy_offset = tf.concat([x_offset, y_offset], axis=-1)
+        xy_offset = tf.cast(tf.reshape(xy_offset, [grid_size[0], grid_size[1], 1, 2]), tf.float32)
+
+        box_centers = box_centers + xy_offset
+        box_centers = box_centers * ratio[::-1]
