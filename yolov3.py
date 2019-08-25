@@ -100,7 +100,7 @@ class Graph:
         self.use_label_smooth = use_label_smooth
         self.use_focal_loss = use_focal_loss
 
-    def forward(self, inputs, is_training=False, reuse=False):
+    def forward(self, inputs, is_training=False):
         self.image_size = tf.shape(inputs)[1:3]
 
         with tf.variable_scope('darknet53_body'):
