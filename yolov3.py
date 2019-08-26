@@ -149,3 +149,93 @@ class Graph:
 
         box_centers = box_centers + xy_offset
         box_centers = box_centers * ratio[::-1]
+
+        box_sizes = tf.exp(box_sizes) * rescaled_anchors
+        box_sizes = box_sizes * ratio[::-1]
+
+        boxes = tf.concat([box_centers, box_sizes], axis=-1)
+
+        return xy_offset, boxes, conf_logits, prob_logits
+
+    def predict(self, feature_maps):
+        feature_map1, feature_map2, feature_map3 = feature_maps
+
+        feature_map_anchors = [(feature_map1, self.anchors[6:9]),
+                               (feature_map2, self.anchors[3:6]),
+                               (feature_map3, self.anchors[0:3])]
+        reorg_results = [self.reorg_layer(feature_map, anchors) for feature_map, anchors in feature_map_anchors]
+
+        def _reshape(result):
+            x_y_offset, boxes, conf_logits, prob_logits = result
+            grid_size = x_y_offset.get_shape().as_list()[:2]
+            boxes = tf.reshape(boxes, [-1, grid_size[0] * grid_size[1] * 3, 4])
+            conf_logits = tf.reshape(conf_logits, [-1, grid_size[0] * grid_size[1] * 3, 1])
+            prob_logits = tf.reshape(prob_logits, [-1, grid_size[0] * grid_size[1] * 3, self.class_num])
+
+            return boxes, conf_logits, prob_logits
+
+        boxes_list, confs_list, probs_list = [], [], []
+        for result in reorg_results:
+            boxes, conf_logits, prob_logits = _reshape(result)
+            confs = tf.nn.sigmoid(conf_logits)
+            probs = tf.nn.sigmoid(prob_logits)
+            boxes_list.append(boxes)
+            confs_list.append(confs)
+            probs_list.append(probs)
+
+        boxes = tf.concat(boxes_list, axis=1)
+        confs = tf.concat(confs_list, axis=1)
+        probs = tf.concat(probs_list, axis=1)
+
+        center_x, center_y, width, height = tf.split(boxes, [1, 1, 1, 1], axis=-1)
+        x_min = center_x - width / 2
+        y_min = center_y - height / 2
+        x_max = center_x + width / 2
+        y_max = center_y + height / 2
+
+        boxes = tf.concat([x_min, y_min, x_max, y_max], axis=-1)
+
+        return boxes, confs, probs
+
+    def loss_layer(self, feature_map, y_true, anchors):
+        grid_size = tf.shape(feature_map)[1:3]
+        ratio = tf.cast(self.image_size / grid_size, tf.float32)
+        N = tf.cast(tf.shape(feature_map)[0], tf.float32)
+
+        xy_offset, pred_boxes, pred_conf_logits, pred_prob_logits = self.reorg_layer(feature_map, anchors)
+
+        # get mask.
+        object_mask = y_true[..., 4:5]
+        ignore_mask = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+
+        def loop_cond(idx, ignore_mask):
+            return tf.less(idx, tf.cast(N, tf.int32))
+
+        def loop_body(idx, ignore_mask):
+            valid_true_boxes = tf.boolean_mask(y_true[idx, ..., 0:4], tf.cast(object_mask[idx, ..., 0], 'bool'))
+            iou = self.box_iou(pred_boxes[idx], valid_true_boxes)
+            best_iou = tf.reduce_max(iou, axis=-1)
+
+            ignore_mask_tmp = tf.cast(best_iou < 0.5, tf.float32)
+            ignore_mask = ignore_mask.write(idx, ignore_mask_tmp)
+            return idx + 1, ignore_mask
+
+        _, ignore_mask = tf.while_loop(cond=loop_cond, body=loop_body, loop_vars=[0, ignore_mask])
+        ignore_mask = ignore_mask.stack()
+        ignore_mask = tf.expand_dims(ignore_mask, axis=-1)
+
+        pred_box_xy = pred_boxes[..., 0:2]
+        pred_box_wh = pred_boxes[..., 2:4]
+
+        true_xy = y_true[..., 0:2] / ratio[::-1] - xy_offset
+        pred_xy = pred_box_xy / ratio[::-1] - xy_offset
+
+        true_tw_th = y_true[..., 2:4] / anchors
+        pred_tw_th = pred_box_wh / anchors
+
+        true_tw_th = tf.where(condition=tf.equal(true_tw_th, 0),
+                              x=tf.ones_like(true_tw_th), y=true_tw_th)
+        pred_tw_th = tf.where(condition=tf.equal(pred_tw_th, 0),
+                              x=tf.ones_like(pred_tw_th), y=pred_tw_th)
+        true_tw_th = tf.log(tf.clip_by_value(true_tw_th, 1e-9, 1e9))
+        pred_tw_th = tf.log(tf.clip_by_value(pred_tw_th, 1e-9, 1e9))
