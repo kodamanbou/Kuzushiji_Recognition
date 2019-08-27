@@ -239,3 +239,78 @@ class Graph:
                               x=tf.ones_like(pred_tw_th), y=pred_tw_th)
         true_tw_th = tf.log(tf.clip_by_value(true_tw_th, 1e-9, 1e9))
         pred_tw_th = tf.log(tf.clip_by_value(pred_tw_th, 1e-9, 1e9))
+
+        box_loss_scale = 2. - (y_true[..., 2:3] / tf.cast(self.image_size[1], tf.float32)) * (
+                y_true[..., 3:4] / tf.cast(self.image_size[0], tf.float32))
+
+        # Loss part.
+        mix_w = y_true[..., -1:]
+        xy_loss = tf.reduce_mean(tf.square(true_xy - pred_xy) * object_mask * box_loss_scale * mix_w) / N
+        wh_loss = tf.reduce_mean(tf.square(true_tw_th - pred_tw_th) * object_mask * box_loss_scale * mix_w) / N
+
+        conf_pos_mask = object_mask
+        conf_neg_mask = (1 - object_mask) * ignore_mask
+        conf_loss_pos = conf_pos_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
+                                                                                logits=pred_conf_logits)
+        conf_loss_neg = conf_neg_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
+                                                                                logits=pred_conf_logits)
+        conf_loss = conf_pos_mask + conf_neg_mask
+        if self.use_focal_loss:
+            alpha = 1.0
+            gamma = 2.0
+            focal_loss = alpha * tf.pow(tf.abs(object_mask - tf.nn.sigmoid(pred_conf_logits)), gamma)
+            conf_loss *= focal_loss
+
+        conf_loss = tf.reduce_sum(conf_loss * mix_w) / N
+
+        if self.use_label_smooth:
+            delta = 0.01
+            label_target = (1 - delta) * y_true[..., 5:-1] + delta * 1. / self.class_num
+        else:
+            label_target = y_true[..., 5:-1]
+
+        class_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=label_target,
+                                                                           logits=pred_prob_logits) * mix_w
+        class_loss = tf.reduce_sum(class_loss) / N
+
+        return xy_loss, wh_loss, conf_loss, class_loss
+
+    def box_iou(self, pred_boxes, valid_true_boxes):
+        pred_box_xy = pred_boxes[..., 0:2]
+        pred_box_wh = pred_boxes[..., 2:4]
+
+        pred_box_xy = tf.expand_dims(pred_box_xy, -2)
+        pred_box_wh = tf.expand_dims(pred_box_wh, -2)
+
+        true_box_xy = valid_true_boxes[:, 0:2]
+        true_box_wh = valid_true_boxes[:, 2:4]
+
+        intersect_mins = tf.maximum(pred_box_xy - pred_box_wh / 2., true_box_xy - true_box_wh / 2.)
+        intersect_maxs = tf.minimum(pred_box_xy + pred_box_wh / 2., true_box_xy + true_box_wh / 2.)
+        intersect_wh = tf.maximum(intersect_maxs - intersect_mins, 0)
+
+        intersect_area = intersect_wh[..., 0] * intersect_wh[..., 1]
+        pred_box_area = pred_box_wh[..., 0] * pred_box_wh[..., 1]
+        true_box_area = true_box_wh[..., 0] * true_box_wh[..., 1]
+        true_box_area = tf.expand_dims(true_box_area, axis=0)
+
+        iou = intersect_area / (pred_box_area + true_box_area - intersect_area + 1e-10)
+
+        return iou
+
+    def compute_loss(self, y_pred, y_true):
+        loss_xy, loss_wh, loss_conf, loss_class = 0., 0., 0., 0.
+        anchor_group = [self.anchors[6:9],
+                        self.anchors[3:6],
+                        self.anchors[0:3]]
+
+        for i in range(len(y_pred)):
+            result = self.loss_layer(y_pred[i], y_true[i], anchor_group[i])
+            loss_xy += result[0]
+            loss_wh += result[1]
+            loss_conf += result[2]
+            loss_class += result[3]
+
+        total_loss = loss_xy + loss_wh + loss_conf + loss_class
+
+        return [total_loss, loss_xy, loss_wh, loss_conf, loss_class]
