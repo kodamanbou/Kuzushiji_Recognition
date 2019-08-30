@@ -1,16 +1,86 @@
 import numpy as np
 from PIL import Image
-import os
-import matplotlib.pyplot as plt
+import math
 import pandas as pd
 import tensorflow as tf
 
-df_train = pd.read_csv('../input/train.csv')
-df_train.dropna(inplace=True)
-df_train.reset_index(inplace=True, drop=True)
-unicode_map = {codepoint: char for codepoint, char in pd.read_csv('../input/unicode_translation.csv').values}
+df_translation = pd.read_csv('../input/unicode_translation.csv')
 
 
+def unicode_to_num(unicode):
+    return df_translation[df_translation['Unicode'] == unicode].index[0]
+
+
+def get_batch_data(line, class_num, anchors):
+    anchors_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
+    filename = str(line[0].decode())
+    image = Image.open('../input/train_images/' + filename + '.jpg')
+    w_ratio = image.width / 416.
+    h_ratio = image.height / 416.
+    image = image.resize((416, 416))
+    image = np.asarray(image, np.float32)
+    cols = str(line[1].decode()).strip().split(' ')
+
+    labels = []
+    boxes = []
+
+    for i in range(len(cols) // 5):
+        label = int(unicode_to_num(cols[i * 5]))
+        xmin = float(cols[i * 5 + 1]) / w_ratio
+        ymin = float(cols[i * 5 + 2]) / h_ratio
+        xmax = xmin + float(cols[i * 5 + 3]) / w_ratio
+        ymax = ymin + float(cols[i * 5 + 4]) / h_ratio
+
+        labels.append(label)
+        boxes.append([xmin, ymin, xmax, ymax])
+
+    labels = np.asarray(labels, np.int64)
+    boxes = np.asarray(boxes, np.float32)
+    boxes = np.concatenate((boxes, np.full(shape=(boxes.shape[0], 1), fill_value=1., dtype=np.float32)), axis=-1)
+
+    box_centers = (boxes[:, 0:2] + boxes[:, 2:4]) / 2
+    box_sizes = boxes[:, 2:4] - boxes[:, 0:2]
+
+    y_true_13 = np.zeros((13, 13, 3, 6 + class_num), np.float32)
+    y_true_26 = np.zeros((26, 26, 3, 6 + class_num), np.float32)
+    y_true_52 = np.zeros((52, 52, 3, 6 + class_num), np.float32)
+
+    y_true_13[..., -1] = 1.
+    y_true_26[..., -1] = 1.
+    y_true_52[..., -1] = 1.
+
+    y_true = [y_true_13, y_true_26, y_true_52]
+
+    box_sizes = np.expand_dims(box_sizes, 1)
+    mins = np.maximum(-box_sizes / 2, -anchors / 2)
+    maxs = np.minimum(box_sizes / 2, anchors / 2)
+    # [N, 9, 2]
+    whs = maxs - mins
+
+    iou = (whs[:, :, 0] * whs[:, :, 1]) / (
+            box_sizes[:, :, 0] * box_sizes[:, :, 1] + anchors[:, 0] * anchors[:, 1] - whs[:, :, 0] * whs[:, :, 1]
+            + 1e-10)
+
+    best_match_index = np.argmax(iou, axis=1)
+    ratio_dict = {1.: 8., 2.: 16., 3.: 32}
+    for i, idx in enumerate(best_match_index):
+        feature_map_group = 2 - idx // 3
+        ratio = ratio_dict[np.ceil((idx + 1) / 3.)]
+        x = int(np.floor(box_centers[i, 0] / ratio))
+        y = int(np.floor(box_centers[i, 1] / ratio))
+        k = anchors_mask[feature_map_group].index(idx)
+        c = labels[i]
+
+        y_true[feature_map_group][y, x, k, :2] = box_centers[i]
+        y_true[feature_map_group][y, x, k, 2:4] = box_sizes[i]
+        y_true[feature_map_group][y, x, k, 4] = 1.
+        y_true[feature_map_group][y, x, k, 5 + c] = 1.
+        y_true[feature_map_group][y, x, k, -1] = boxes[i, -1]
+
+    return image, y_true_13, y_true_26, y_true_52
+
+
+# Network utils.
 def conv2d(inputs, filters, kernel_size, strides=1, is_training=False):
     def _fixed_padding(inputs, kernel_size):
         pad_total = kernel_size - 1
@@ -93,6 +163,7 @@ def upsample_layer(inputs, out_shape):
     return inputs
 
 
+# YOLO-v3.
 class Graph:
     def __init__(self, class_num, anchors, use_label_smooth=False, use_focal_loss=False):
         self.class_num = class_num
@@ -112,7 +183,7 @@ class Graph:
             feature_map1 = tf.identity(feature_map1, name='feature_map_1')
 
             inter1 = conv2d(inter1, 256, 1, is_training=is_training)
-            inter1 = upsample_layer(inter1, route2.get_shape().as_list())
+            inter1 = upsample_layer(inter1, tf.shape(route2))
             concat1 = tf.concat([inter1, route2], axis=3)
 
             inter2, net = yolo_block(concat1, 256, is_training=is_training)
@@ -120,7 +191,7 @@ class Graph:
             feature_map2 = tf.identity(feature_map2, name='feature_map_2')
 
             inter2 = conv2d(inter2, 128, 1, is_training=is_training)
-            inter2 = upsample_layer(inter2, route1.get_shape().as_list())
+            inter2 = upsample_layer(inter2, tf.shape(route1))
             concat2 = tf.concat([inter2, route1], axis=3)
 
             _, feature_map3 = yolo_block(concat2, 128, is_training=is_training)
@@ -130,7 +201,7 @@ class Graph:
         return feature_map1, feature_map2, feature_map3
 
     def reorg_layer(self, feature_map, anchors):
-        grid_size = feature_map.get_shape().as_list()[1:3]
+        grid_size = tf.shape(feature_map)[1:3]
         ratio = tf.cast(self.image_size / grid_size, tf.float32)
         rescaled_anchors = [(anchor[0] / ratio[1], anchor[1] / ratio[0]) for anchor in anchors]
 
@@ -167,7 +238,7 @@ class Graph:
 
         def _reshape(result):
             x_y_offset, boxes, conf_logits, prob_logits = result
-            grid_size = x_y_offset.get_shape().as_list()[:2]
+            grid_size = tf.shape(x_y_offset)[:2]
             boxes = tf.reshape(boxes, [-1, grid_size[0] * grid_size[1] * 3, 4])
             conf_logits = tf.reshape(conf_logits, [-1, grid_size[0] * grid_size[1] * 3, 1])
             prob_logits = tf.reshape(prob_logits, [-1, grid_size[0] * grid_size[1] * 3, self.class_num])
@@ -254,7 +325,7 @@ class Graph:
                                                                                 logits=pred_conf_logits)
         conf_loss_neg = conf_neg_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
                                                                                 logits=pred_conf_logits)
-        conf_loss = conf_pos_mask + conf_neg_mask
+        conf_loss = conf_loss_pos + conf_loss_neg
         if self.use_focal_loss:
             alpha = 1.0
             gamma = 2.0
@@ -314,3 +385,86 @@ class Graph:
         total_loss = loss_xy + loss_wh + loss_conf + loss_class
 
         return [total_loss, loss_xy, loss_wh, loss_conf, loss_class]
+
+
+if __name__ == '__main__':
+    batch_size = 6
+    class_num = 4787
+    anchors = [[10, 13], [16, 30], [33, 23],
+               [30, 61], [62, 45], [59, 119],
+               [116, 90], [156, 198], [373, 326]]
+
+    is_training = tf.placeholder_with_default(False, shape=None, name='is_training')
+
+    # data pipeline.
+    df_train = pd.read_csv('../input/train.csv')
+    df_train.dropna(inplace=True)
+    df_train.reset_index(inplace=True, drop=True)
+
+    train_batch_num = int(math.ceil(float(len(df_train)) / batch_size))
+
+    train_dataset = tf.data.Dataset.from_tensor_slices(df_train.values)
+    train_dataset = train_dataset.map(
+        lambda x: tf.py_func(get_batch_data,
+                             inp=[x, class_num, anchors],
+                             Tout=[tf.float32, tf.float32, tf.float32, tf.float32]),
+        num_parallel_calls=16
+    )
+    train_dataset = train_dataset.shuffle(len(df_train)).batch(batch_size)
+    train_dataset = train_dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+
+    iterator = tf.data.Iterator.from_structure(train_dataset.output_types, train_dataset.output_shapes)
+    train_init_op = iterator.make_initializer(train_dataset)
+
+    image, y_true_13, y_true_26, y_true_52 = iterator.get_next()
+    y_true = [y_true_13, y_true_26, y_true_52]
+
+    image.set_shape([None, None, None, 3])
+    for y in y_true:
+        y.set_shape([None, None, None, None, None])
+
+    yolo_model = Graph(class_num, anchors)
+    with tf.variable_scope('yolov3'):
+        pred_feature_maps = yolo_model.forward(image, is_training=is_training)
+
+    loss = yolo_model.compute_loss(pred_feature_maps, y_true)
+    y_pred = yolo_model.predict(pred_feature_maps)
+
+    l2_loss = tf.losses.get_regularization_loss()
+
+    global_step = tf.Variable(0, trainable=False, collections=[tf.GraphKeys.LOCAL_VARIABLES])
+
+    learning_rate = tf.train.piecewise_constant(global_step, boundaries=[30, 50], values=[1e-4, 3e-5, 1e-5],
+                                                name='piecewise_learning_rate')
+
+    optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=0.9)
+
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    update_vars = tf.contrib.framework.get_variables_to_restore(include=['yolov3/yolov3_head'])
+    with tf.control_dependencies(update_ops):
+        gvs = optimizer.compute_gradients(loss[0] + l2_loss, var_list=update_vars)
+        grads_and_vars = [gv if gv[0] is None else [tf.clip_by_norm(gv[0], 100.), gv[1]]
+                          for gv in gvs]
+        train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
+
+    config = tf.ConfigProto()
+    config.allow_soft_placement = True
+    config.log_device_placement = True
+    with tf.Session(config=config) as sess:
+        print('Training start.')
+        sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+
+        for epoch in range(100):
+            sess.run(train_init_op)
+
+            for i in range(train_batch_num):
+                _, _y_pred, _y_true, _loss, _global_step, _lr = sess.run(
+                    [train_op, y_pred, y_true, loss, global_step, learning_rate],
+                    feed_dict={is_training: True}
+                )
+
+                if _global_step % 1000 == 0 and _global_step > 0:
+                    print('Epoch: {} \tloss: total: {} \txy: {} \twh: {} \tconf: {} \tclass{}'
+                          .format(_global_step, _loss[0], _loss[1], _loss[2], _loss[3], _loss[4]))
+
+    print('Training end.')
