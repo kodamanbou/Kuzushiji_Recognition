@@ -509,6 +509,8 @@ if __name__ == '__main__':
                           for gv in gvs]
         train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
 
+    val_data = tf.placeholder(tf.float32, shape=[1, 416, 416, 3], name='X')
+
     config = tf.ConfigProto()
     config.allow_soft_placement = True
     config.log_device_placement = True
@@ -532,16 +534,15 @@ if __name__ == '__main__':
                     test_img = Image.open('../input/test_images/test_0a9b81ce.jpg')
                     test_h, test_w = test_img.height, test_img.width
                     test_img = np.asarray(test_img.resize((416, 416)))
-                    input_data = tf.placeholder(tf.float32, shape=[1, 416, 416, 3], name='X')
 
                     with tf.variable_scope('yolov3'):
-                        val_feature_maps = yolo_model.forward(input_data, False)
+                        val_feature_maps = yolo_model.forward(val_data, False)
 
                     pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
                     pred_scores = pred_confs * pred_probs
 
                     boxes, scores, labels = gpu_nms(pred_boxes, pred_scores , class_num, max_boxes=200)
-                    _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={input_data: test_img})
+                    _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={val_data: test_img})
 
                     plt.figure(figsize=(15, 15))
                     plt.imshow(visualize('../input/test_images/test_0a9b81ce.jpg', _boxes, _scores, _labels))
