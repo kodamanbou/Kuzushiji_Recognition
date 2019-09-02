@@ -485,9 +485,12 @@ if __name__ == '__main__':
     for y in y_true:
         y.set_shape([None, None, None, None, None])
 
+    val_data = tf.placeholder(tf.float32, shape=[1, 416, 416, 3], name='X')  # For debug.
+
     yolo_model = Graph(class_num, anchors)
     with tf.variable_scope('yolov3'):
         pred_feature_maps = yolo_model.forward(image, is_training=is_training)
+        val_feature_maps = yolo_model.forward(val_data, False)
 
     loss = yolo_model.compute_loss(pred_feature_maps, y_true)
     y_pred = yolo_model.predict(pred_feature_maps)
@@ -508,8 +511,6 @@ if __name__ == '__main__':
         grads_and_vars = [gv if gv[0] is None else [tf.clip_by_norm(gv[0], 100.), gv[1]]
                           for gv in gvs]
         train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
-
-    val_data = tf.placeholder(tf.float32, shape=[1, 416, 416, 3], name='X')
 
     config = tf.ConfigProto()
     config.allow_soft_placement = True
@@ -534,9 +535,6 @@ if __name__ == '__main__':
                     test_img = Image.open('../input/test_images/test_0a9b81ce.jpg')
                     test_h, test_w = test_img.height, test_img.width
                     test_img = np.asarray(test_img.resize((416, 416)))
-
-                    with tf.variable_scope('yolov3'):
-                        val_feature_maps = yolo_model.forward(val_data, False)
 
                     pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
                     pred_scores = pred_confs * pred_probs
