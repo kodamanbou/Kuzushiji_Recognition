@@ -467,4 +467,8 @@ if __name__ == '__main__':
                     print('Epoch: {} \tloss: total: {} \txy: {} \twh: {} \tconf: {} \tclass{}'
                           .format(_global_step, _loss[0], _loss[1], _loss[2], _loss[3], _loss[4]))
 
+                    test_img = Image.open('../input/test_images/test_0a9b81ce.jpg')
+                    test_h, test_w = test_img.height, test_img.width
+                    input_data = tf.placeholder(tf.float32, shape=[1, 416, 416, 3], name='X')
+
     print('Training end.')
