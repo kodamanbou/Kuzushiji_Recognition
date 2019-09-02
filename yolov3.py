@@ -22,9 +22,9 @@ def visualize(image_fn, boxes, scores, labels):
     char_draw = ImageDraw.Draw(char_canvas)
 
     for i in range(len(boxes)):
-        x, y, w, h = boxes[i]
-        bbox_draw.rectangle((x, y, x + w, y + h), fill=(255, 255, 255, 0), outline=(255, 0, 0, 255))
-        char_draw.text((x + w + fontsize / 4, y + h / 2 - fontsize), str(labels[i]), fill=(0, 0, 255, 255), font=font)
+        xmin, ymin, xmax, ymax = boxes[i]
+        bbox_draw.rectangle((xmin, ymin, xmax, ymax), fill=(255, 255, 255, 0), outline=(255, 0, 0, 255))
+        char_draw.text((xmax + fontsize / 4, ymax / 2 - fontsize), str(labels[i]), fill=(0, 0, 255, 255), font=font)
 
     imsource = Image.alpha_composite(Image.alpha_composite(imsource, bbox_canvas), char_canvas)
     imsource = imsource.convert('RGB')
@@ -117,7 +117,7 @@ def gpu_nms(boxes, scores, num_classes, max_boxes=50, score_thresh=0.5, nms_thre
     max_boxes = tf.constant(max_boxes, dtype='int32')
 
     # since we do nms for single image, then reshape it
-    boxes = tf.reshape(boxes, [-1, 4]) # '-1' means we don't konw the exact number of boxes
+    boxes = tf.reshape(boxes, [-1, 4])  # '-1' means we don't konw the exact number of boxes
     score = tf.reshape(scores, [-1, num_classes])
 
     # Step 1: Create a filtering mask based on "box_class_scores" by using "threshold".
@@ -125,13 +125,13 @@ def gpu_nms(boxes, scores, num_classes, max_boxes=50, score_thresh=0.5, nms_thre
     # Step 2: Do non_max_suppression for each class
     for i in range(num_classes):
         # Step 3: Apply the mask to scores, boxes and pick them out
-        filter_boxes = tf.boolean_mask(boxes, mask[:,i])
-        filter_score = tf.boolean_mask(score[:,i], mask[:,i])
+        filter_boxes = tf.boolean_mask(boxes, mask[:, i])
+        filter_score = tf.boolean_mask(score[:, i], mask[:, i])
         nms_indices = tf.image.non_max_suppression(boxes=filter_boxes,
                                                    scores=filter_score,
                                                    max_output_size=max_boxes,
                                                    iou_threshold=nms_thresh, name='nms_indices')
-        label_list.append(tf.ones_like(tf.gather(filter_score, nms_indices), 'int32')*i)
+        label_list.append(tf.ones_like(tf.gather(filter_score, nms_indices), 'int32') * i)
         boxes_list.append(tf.gather(filter_boxes, nms_indices))
         score_list.append(tf.gather(filter_score, nms_indices))
 
@@ -541,7 +541,7 @@ if __name__ == '__main__':
                     pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
                     pred_scores = pred_confs * pred_probs
 
-                    boxes, scores, labels = gpu_nms(pred_boxes, pred_scores , class_num, max_boxes=200)
+                    boxes, scores, labels = gpu_nms(pred_boxes, pred_scores, class_num, max_boxes=200)
                     _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={val_data: test_img})
 
                     plt.figure(figsize=(15, 15))
