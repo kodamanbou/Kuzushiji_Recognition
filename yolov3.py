@@ -1,14 +1,34 @@
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
+import matplotlib.pyplot as plt
 import math
 import pandas as pd
 import tensorflow as tf
 
 df_translation = pd.read_csv('../input/unicode_translation.csv')
+fontsize = 50
+font = ImageFont.truetype('./NotoSansCJKjp-Regular.otf', size=fontsize, encoding='utf-8')
 
 
 def unicode_to_num(unicode):
     return df_translation[df_translation['Unicode'] == unicode].index[0]
+
+
+def visualize(image_fn, boxes, scores, labels):
+    imsource = Image.open(image_fn).convert('RGBA').resize((416, 416))
+    bbox_canvas = Image.new('RGBA', imsource.size)
+    char_canvas = Image.new('RGBA', imsource.size)
+    bbox_draw = ImageDraw.Draw(bbox_canvas)
+    char_draw = ImageDraw.Draw(char_canvas)
+
+    for i in range(len(boxes)):
+        x, y, w, h = boxes[i]
+        bbox_draw.rectangle((x, y, x + w, y + h), fill=(255, 255, 255, 0), outline=(255, 0, 0, 255))
+        char_draw.text((x + w + fontsize / 4, y + h / 2 - fontsize), str(labels[i]), fill=(0, 0, 255, 255), font=font)
+
+    imsource = Image.alpha_composite(Image.alpha_composite(imsource, bbox_canvas), char_canvas)
+    imsource = imsource.convert('RGB')
+    return np.asarray(imsource)
 
 
 def get_batch_data(line, class_num, anchors):
@@ -78,6 +98,48 @@ def get_batch_data(line, class_num, anchors):
         y_true[feature_map_group][y, x, k, -1] = boxes[i, -1]
 
     return image, y_true_13, y_true_26, y_true_52
+
+
+def gpu_nms(boxes, scores, num_classes, max_boxes=50, score_thresh=0.5, nms_thresh=0.5):
+    """
+    Perform NMS on GPU using TensorFlow.
+    params:
+        boxes: tensor of shape [1, 10647, 4] # 10647=(13*13+26*26+52*52)*3, for input 416*416 image
+        scores: tensor of shape [1, 10647, num_classes], score=conf*prob
+        num_classes: total number of classes
+        max_boxes: integer, maximum number of predicted boxes you'd like, default is 50
+        score_thresh: if [ highest class probability score < score_threshold]
+                        then get rid of the corresponding box
+        nms_thresh: real value, "intersection over union" threshold used for NMS filtering
+    """
+
+    boxes_list, label_list, score_list = [], [], []
+    max_boxes = tf.constant(max_boxes, dtype='int32')
+
+    # since we do nms for single image, then reshape it
+    boxes = tf.reshape(boxes, [-1, 4]) # '-1' means we don't konw the exact number of boxes
+    score = tf.reshape(scores, [-1, num_classes])
+
+    # Step 1: Create a filtering mask based on "box_class_scores" by using "threshold".
+    mask = tf.greater_equal(score, tf.constant(score_thresh))
+    # Step 2: Do non_max_suppression for each class
+    for i in range(num_classes):
+        # Step 3: Apply the mask to scores, boxes and pick them out
+        filter_boxes = tf.boolean_mask(boxes, mask[:,i])
+        filter_score = tf.boolean_mask(score[:,i], mask[:,i])
+        nms_indices = tf.image.non_max_suppression(boxes=filter_boxes,
+                                                   scores=filter_score,
+                                                   max_output_size=max_boxes,
+                                                   iou_threshold=nms_thresh, name='nms_indices')
+        label_list.append(tf.ones_like(tf.gather(filter_score, nms_indices), 'int32')*i)
+        boxes_list.append(tf.gather(filter_boxes, nms_indices))
+        score_list.append(tf.gather(filter_score, nms_indices))
+
+    boxes = tf.concat(boxes_list, axis=0)
+    score = tf.concat(score_list, axis=0)
+    label = tf.concat(label_list, axis=0)
+
+    return boxes, score, label
 
 
 # Network utils.
@@ -469,6 +531,20 @@ if __name__ == '__main__':
 
                     test_img = Image.open('../input/test_images/test_0a9b81ce.jpg')
                     test_h, test_w = test_img.height, test_img.width
+                    test_img = np.asarray(test_img.resize((416, 416)))
                     input_data = tf.placeholder(tf.float32, shape=[1, 416, 416, 3], name='X')
+
+                    with tf.variable_scope('yolov3'):
+                        val_feature_maps = yolo_model.forward(input_data, False)
+
+                    pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
+                    pred_scores = pred_confs * pred_probs
+
+                    boxes, scores, labels = gpu_nms(pred_boxes, pred_scores , class_num, max_boxes=200)
+                    _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={input_data: test_img})
+
+                    plt.figure(figsize=(15, 15))
+                    plt.imshow(visualize('../input/test_images/test_0a9b81ce.jpg', _boxes, _scores, _labels))
+                    plt.show()
 
     print('Training end.')
