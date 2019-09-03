@@ -3,6 +3,7 @@ from PIL import Image, ImageDraw, ImageFont
 import matplotlib.pyplot as plt
 import math
 import os
+import argparse
 import pandas as pd
 import tensorflow as tf
 
@@ -452,6 +453,8 @@ class Graph:
 
 
 if __name__ == '__main__':
+    print('Training start.')
+
     batch_size = 6
     class_num = 4787
     anchors = [[10, 13], [16, 30], [33, 23],
@@ -518,35 +521,64 @@ if __name__ == '__main__':
     config.allow_soft_placement = True
     config.log_device_placement = True
     config.gpu_options.allow_growth = True
-    with tf.Session(config=config) as sess:
-        print('Training start.')
-        sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
 
-        for epoch in range(100):
-            sess.run(train_init_op)
+    cluster_spec = tf.train.ClusterSpec({
+        'ps': [
+            '192.168.3.198:2221',
+        ],
+        'worker': [
+            '192.168.11.14:2222',
+            '192.168.11.9:2222',
+        ]
+    })
 
-            for i in range(train_batch_num):
-                _, _y_pred, _y_true, _loss, _global_step, _lr = sess.run(
-                    [train_op, y_pred, y_true, loss, global_step, learning_rate],
-                    feed_dict={is_training: True}
-                )
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--job-name', dest='job_name', type=str, choices=['ps', 'worker'])
+    parser.add_argument('--task-index', dest='task_index', type=int, default=0)
+    args = parser.parse_args()
 
-                if _global_step % 1000 == 0 and _global_step > 0:
-                    print('Epoch: {} \tloss: total: {} \txy: {} \twh: {} \tconf: {} \tclass{}'
-                          .format(_global_step, _loss[0], _loss[1], _loss[2], _loss[3], _loss[4]))
+    server = tf.train.Server(cluster_spec, job_name=args.job_name, task_index=args.task_index)
 
-                    test_img = Image.open(input_dir + 'test_images/test_0a9b81ce.jpg')
-                    test_h, test_w = test_img.height, test_img.width
-                    test_img = np.asarray(test_img.resize((416, 416)))
+    if args.job_name == 'ps':
+        server.join()
+    else:
+        is_chief = (args.task_index == 0)
+        hooks = [tf.train.CheckpointSaverHook('logdir',
+                                              save_steps=1000,
+                                              saver=tf.train.Saver(max_to_keep=1))]
 
-                    pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
-                    pred_scores = pred_confs * pred_probs
+        with tf.train.MonitoredTrainingSession(is_chief=is_chief,
+                                               master=server.target,
+                                               hooks=hooks,
+                                               config=config) as sess:
+            sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
 
-                    boxes, scores, labels = gpu_nms(pred_boxes, pred_scores, class_num, max_boxes=200)
-                    _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={val_data: test_img})
+            for epoch in range(100):
+                sess.run(train_init_op)
 
-                    plt.figure(figsize=(15, 15))
-                    plt.imshow(visualize(input_dir + 'test_images/test_0a9b81ce.jpg', _boxes, _scores, _labels))
-                    plt.show()
+                for i in range(train_batch_num):
+                    _, _y_pred, _y_true, _loss, _global_step, _lr = sess.run(
+                        [train_op, y_pred, y_true, loss, global_step, learning_rate],
+                        feed_dict={is_training: True}
+                    )
+
+                    if _global_step % 1000 == 0 and _global_step > 0:
+                        print('Epoch: {} \tloss: total: {} \txy: {} \twh: {} \tconf: {} \tclass{}'
+                              .format(_global_step, _loss[0], _loss[1], _loss[2], _loss[3], _loss[4]))
+
+                        if is_chief:
+                            test_img = Image.open(input_dir + 'test_images/test_0a9b81ce.jpg')
+                            test_h, test_w = test_img.height, test_img.width
+                            test_img = np.asarray(test_img.resize((416, 416)))
+
+                            pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
+                            pred_scores = pred_confs * pred_probs
+
+                            boxes, scores, labels = gpu_nms(pred_boxes, pred_scores, class_num, max_boxes=200)
+                            _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={val_data: test_img})
+
+                            plt.figure(figsize=(15, 15))
+                            plt.imshow(visualize(input_dir + 'test_images/test_0a9b81ce.jpg', _boxes, _scores, _labels))
+                            plt.show()
 
     print('Training end.')
