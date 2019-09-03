@@ -2,10 +2,12 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import matplotlib.pyplot as plt
 import math
+import os
 import pandas as pd
 import tensorflow as tf
 
-df_translation = pd.read_csv('../input/unicode_translation.csv')
+input_dir = '../input/'
+df_translation = pd.read_csv(os.path.join(input_dir, 'unicode_translation.csv'))
 fontsize = 50
 font = ImageFont.truetype('./NotoSansCJKjp-Regular.otf', size=fontsize, encoding='utf-8')
 
@@ -34,7 +36,7 @@ def visualize(image_fn, boxes, scores, labels):
 def get_batch_data(line, class_num, anchors):
     anchors_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
     filename = str(line[0].decode())
-    image = Image.open('../input/train_images/' + filename + '.jpg')
+    image = Image.open(input_dir + 'train_images/' + filename + '.jpg')
     w_ratio = image.width / 416.
     h_ratio = image.height / 416.
     image = image.resize((416, 416))
@@ -459,7 +461,7 @@ if __name__ == '__main__':
     is_training = tf.placeholder_with_default(False, shape=None, name='is_training')
 
     # data pipeline.
-    df_train = pd.read_csv('../input/train.csv')
+    df_train = pd.read_csv(os.path.join(input_dir, 'train.csv'))
     df_train.dropna(inplace=True)
     df_train.reset_index(inplace=True, drop=True)
 
@@ -533,7 +535,7 @@ if __name__ == '__main__':
                     print('Epoch: {} \tloss: total: {} \txy: {} \twh: {} \tconf: {} \tclass{}'
                           .format(_global_step, _loss[0], _loss[1], _loss[2], _loss[3], _loss[4]))
 
-                    test_img = Image.open('../input/test_images/test_0a9b81ce.jpg')
+                    test_img = Image.open(input_dir + 'test_images/test_0a9b81ce.jpg')
                     test_h, test_w = test_img.height, test_img.width
                     test_img = np.asarray(test_img.resize((416, 416)))
 
@@ -544,7 +546,7 @@ if __name__ == '__main__':
                     _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={val_data: test_img})
 
                     plt.figure(figsize=(15, 15))
-                    plt.imshow(visualize('../input/test_images/test_0a9b81ce.jpg', _boxes, _scores, _labels))
+                    plt.imshow(visualize(input_dir + 'test_images/test_0a9b81ce.jpg', _boxes, _scores, _labels))
                     plt.show()
 
     print('Training end.')
