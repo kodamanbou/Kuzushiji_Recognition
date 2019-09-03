@@ -514,6 +514,7 @@ if __name__ == '__main__':
 
     config = tf.ConfigProto()
     config.allow_soft_placement = True
+    config.allow_growth = True
     config.log_device_placement = True
     with tf.Session(config=config) as sess:
         print('Training start.')
