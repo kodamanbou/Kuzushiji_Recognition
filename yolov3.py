@@ -488,7 +488,7 @@ if __name__ == '__main__':
     val_data = tf.placeholder(tf.float32, shape=[1, 416, 416, 3], name='X')  # For debug.
 
     yolo_model = Graph(class_num, anchors)
-    with tf.variable_scope('yolov3'):
+    with tf.variable_scope('yolov3', reuse=True):
         pred_feature_maps = yolo_model.forward(image, is_training=is_training)
         val_feature_maps = yolo_model.forward(val_data, False)
 
