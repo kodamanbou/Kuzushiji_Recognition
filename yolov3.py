@@ -453,7 +453,7 @@ class Graph:
 
 
 if __name__ == '__main__':
-    print('Training start.')
+    print('Training start')
 
     batch_size = 6
     class_num = 4787
