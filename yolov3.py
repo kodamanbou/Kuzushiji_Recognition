@@ -107,7 +107,7 @@ def gpu_nms(boxes, scores, num_classes, max_boxes=50, score_thresh=0.5, nms_thre
     """
     Perform NMS on GPU using TensorFlow.
     params:
-        boxes: tensor of shape [1, 10647, 4] # 10647=(13*13+26*26+52*52)*3, for input 416*416 image
+        boxes: tensor of shape [1, 10647, 4]  # 10647=(13*13+26*26+52*52)*3, for input 416*416 image
         scores: tensor of shape [1, 10647, num_classes], score=conf * prob
         num_classes: total number of classes
         max_boxes: integer, maximum number of predicted boxes you'd like, default is 50
