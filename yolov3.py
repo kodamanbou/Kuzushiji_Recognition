@@ -491,7 +491,7 @@ if __name__ == '__main__':
     for y in y_true:
         y.set_shape([None, None, None, None, None])
 
-    val_data = tf.placeholder(tf.float32, shape=[1, 416, 416, 3], name='X')  # For debug.
+    val_data = tf.placeholder(tf.float32, shape=[None, 416, 416, 3], name='X')  # For debug.
 
     yolo_model = Graph(class_num, anchors)
     with tf.variable_scope('yolov3', reuse=tf.AUTO_REUSE):
