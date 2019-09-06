@@ -522,63 +522,34 @@ if __name__ == '__main__':
     config.log_device_placement = True
     config.gpu_options.allow_growth = True
 
-    cluster_spec = tf.train.ClusterSpec({
-        'ps': [
-            '192.168.11.4:2221',
-        ],
-        'worker': [
-            '192.168.11.2:2222',
-            '192.168.11.8:2222',
-        ]
-    })
+    with tf.Session(config=config) as sess:
+        sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--job-name', dest='job_name', type=str, choices=['ps', 'worker'])
-    parser.add_argument('--task-index', dest='task_index', type=int, default=0)
-    args = parser.parse_args()
+        for epoch in range(100):
+            sess.run(train_init_op)
 
-    server = tf.train.Server(cluster_spec, job_name=args.job_name, task_index=args.task_index)
+            for i in range(train_batch_num):
+                _, _y_pred, _y_true, _loss, _global_step, _lr = sess.run(
+                    [train_op, y_pred, y_true, loss, global_step, learning_rate],
+                    feed_dict={is_training: True}
+                )
 
-    if args.job_name == 'ps':
-        server.join()
-    else:
-        is_chief = (args.task_index == 0)
-        hooks = [tf.train.CheckpointSaverHook('logdir',
-                                              save_steps=1000,
-                                              saver=tf.train.Saver(max_to_keep=1))]
+                if _global_step % 1000 == 0 and _global_step > 0:
+                    print('Epoch: {} \tloss: total: {} \txy: {} \twh: {} \tconf: {} \tclass{}'
+                          .format(_global_step, _loss[0], _loss[1], _loss[2], _loss[3], _loss[4]))
 
-        with tf.train.MonitoredTrainingSession(is_chief=is_chief,
-                                               master=server.target,
-                                               hooks=hooks,
-                                               config=config) as sess:
-            sess.run([tf.global_variables_initializer(), tf.local_variables_initializer()])
+                    test_img = Image.open(input_dir + 'test_images/test_0a9b81ce.jpg')
+                    test_h, test_w = test_img.height, test_img.width
+                    test_img = np.asarray(test_img.resize((416, 416)))
 
-            for epoch in range(100):
-                sess.run(train_init_op)
+                    pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
+                    pred_scores = pred_confs * pred_probs
 
-                for i in range(train_batch_num):
-                    _, _y_pred, _y_true, _loss, _global_step, _lr = sess.run(
-                        [train_op, y_pred, y_true, loss, global_step, learning_rate],
-                        feed_dict={is_training: True}
-                    )
+                    boxes, scores, labels = gpu_nms(pred_boxes, pred_scores, class_num, max_boxes=200)
+                    _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={val_data: test_img})
 
-                    if _global_step % 1000 == 0 and _global_step > 0:
-                        print('Epoch: {} \tloss: total: {} \txy: {} \twh: {} \tconf: {} \tclass{}'
-                              .format(_global_step, _loss[0], _loss[1], _loss[2], _loss[3], _loss[4]))
-
-                        if is_chief:
-                            test_img = Image.open(input_dir + 'test_images/test_0a9b81ce.jpg')
-                            test_h, test_w = test_img.height, test_img.width
-                            test_img = np.asarray(test_img.resize((416, 416)))
-
-                            pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
-                            pred_scores = pred_confs * pred_probs
-
-                            boxes, scores, labels = gpu_nms(pred_boxes, pred_scores, class_num, max_boxes=200)
-                            _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={val_data: test_img})
-
-                            plt.figure(figsize=(15, 15))
-                            plt.imshow(visualize(input_dir + 'test_images/test_0a9b81ce.jpg', _boxes, _scores, _labels))
-                            plt.show()
+                    plt.figure(figsize=(15, 15))
+                    plt.imshow(visualize(input_dir + 'test_images/test_0a9b81ce.jpg', _boxes, _scores, _labels))
+                    plt.show()
 
     print('Training end.')
