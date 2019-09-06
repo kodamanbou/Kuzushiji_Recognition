@@ -540,7 +540,7 @@ if __name__ == '__main__':
 
                     test_img = Image.open(input_dir + 'test_images/test_0a9b81ce.jpg')
                     test_h, test_w = test_img.height, test_img.width
-                    test_img = np.asarray(test_img.resize((416, 416)))
+                    test_img = np.asarray(test_img.resize((416, 416)), dtype=np.float32)
 
                     pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
                     pred_scores = pred_confs * pred_probs
