@@ -3,7 +3,6 @@ from PIL import Image, ImageDraw, ImageFont
 import matplotlib.pyplot as plt
 import math
 import os
-import argparse
 import pandas as pd
 import tensorflow as tf
 
