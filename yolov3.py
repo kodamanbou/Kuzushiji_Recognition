@@ -47,7 +47,7 @@ def get_batch_data(line, class_num, anchors):
     boxes = []
 
     for i in range(len(cols) // 5):
-        label = int(unicode_to_num(cols[i * 5]))
+        label = 1
         xmin = float(cols[i * 5 + 1]) / w_ratio
         ymin = float(cols[i * 5 + 2]) / h_ratio
         xmax = xmin + float(cols[i * 5 + 3]) / w_ratio
@@ -490,12 +490,9 @@ if __name__ == '__main__':
     for y in y_true:
         y.set_shape([None, None, None, None, None])
 
-    val_data = tf.placeholder(tf.float32, shape=[None, 416, 416, 3], name='X')  # For debug.
-
     yolo_model = Graph(class_num, anchors)
-    with tf.variable_scope('yolov3', reuse=tf.AUTO_REUSE):
+    with tf.variable_scope('yolov3'):
         pred_feature_maps = yolo_model.forward(image, is_training=is_training)
-        val_feature_maps = yolo_model.forward(val_data, False)
 
     loss = yolo_model.compute_loss(pred_feature_maps, y_true)
     y_pred = yolo_model.predict(pred_feature_maps)
@@ -537,19 +534,5 @@ if __name__ == '__main__':
                 if _global_step % 1000 == 0 and _global_step > 0:
                     print('Epoch: {} \tloss: total: {} \txy: {} \twh: {} \tconf: {} \tclass{}'
                           .format(_global_step, _loss[0], _loss[1], _loss[2], _loss[3], _loss[4]))
-
-                    test_img = Image.open(input_dir + 'test_images/test_0a9b81ce.jpg')
-                    test_h, test_w = test_img.height, test_img.width
-                    test_img = np.asarray(test_img.resize((416, 416)), dtype=np.float32)
-
-                    pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
-                    pred_scores = pred_confs * pred_probs
-
-                    boxes, scores, labels = gpu_nms(pred_boxes, pred_scores, class_num, max_boxes=200)
-                    _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={val_data: test_img})
-
-                    plt.figure(figsize=(15, 15))
-                    plt.imshow(visualize(input_dir + 'test_images/test_0a9b81ce.jpg', _boxes, _scores, _labels))
-                    plt.show()
 
     print('Training end.')
