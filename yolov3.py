@@ -546,7 +546,8 @@ if __name__ == '__main__':
                     pred_boxes, pred_confs, pred_probs = yolo_model.predict(val_feature_maps)
                     pred_scores = pred_confs * pred_probs
 
-                    boxes, scores, labels = gpu_nms(pred_boxes, pred_scores, class_num, max_boxes=200)
+                    boxes, scores, labels = gpu_nms(pred_boxes, pred_scores, class_num, max_boxes=200, score_thresh=0.3,
+                                                    nms_thresh=0.45)
                     _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={val_data: test_img})
 
                     plt.figure(figsize=(15, 15))
