@@ -456,9 +456,9 @@ if __name__ == '__main__':
 
     batch_size = 6
     class_num = 1
-    anchors = [[10, 13], [16, 30], [33, 23],
-               [30, 61], [62, 45], [59, 119],
-               [116, 90], [156, 198], [373, 326]]
+    anchors = [[7, 7], [5, 13], [12, 7],
+               [9, 12], [13, 11], [18, 9],
+               [15, 15], [19, 12], [23, 17]]
 
     is_training = tf.placeholder_with_default(False, shape=None, name='is_training')
 
