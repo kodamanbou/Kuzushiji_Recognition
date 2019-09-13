@@ -519,7 +519,6 @@ if __name__ == '__main__':
 
     config = tf.ConfigProto()
     config.allow_soft_placement = True
-    config.log_device_placement = True
     config.gpu_options.allow_growth = True
 
     with tf.Session(config=config) as sess:
@@ -549,6 +548,7 @@ if __name__ == '__main__':
                     boxes, scores, labels = gpu_nms(pred_boxes, pred_scores, class_num, max_boxes=200, score_thresh=0.3,
                                                     nms_thresh=0.45)
                     _boxes, _scores, _labels = sess.run([boxes, scores, labels], feed_dict={val_data: test_img})
+                    print('Box_num: ' + str(len(_boxes)))
 
                     plt.figure(figsize=(15, 15))
                     plt.imshow(visualize(input_dir + 'test_images/test_0a9b81ce.jpg', _boxes, _scores, _labels))
