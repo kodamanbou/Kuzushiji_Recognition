@@ -504,7 +504,7 @@ if __name__ == '__main__':
 
     global_step = tf.Variable(0, trainable=False, collections=[tf.GraphKeys.LOCAL_VARIABLES])
 
-    learning_rate = tf.train.piecewise_constant(global_step, boundaries=[30, 50], values=[1e-4, 3e-5, 1e-5],
+    learning_rate = tf.train.piecewise_constant(global_step, boundaries=[20000, 40000], values=[1e-4, 3e-5, 1e-5],
                                                 name='piecewise_learning_rate')
 
     optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=0.9)
@@ -534,7 +534,7 @@ if __name__ == '__main__':
                 )
 
                 if _global_step % 1000 == 0 and _global_step > 0:
-                    print('Epoch: {} \tloss: total: {} \txy: {} \twh: {} \tconf: {} \tclass{}'
+                    print('Global Step: {} \tloss: total: {} \txy: {} \twh: {} \tconf: {} \tclass{}'
                           .format(_global_step, _loss[0], _loss[1], _loss[2], _loss[3], _loss[4]))
 
                     test_img = Image.open(input_dir + 'test_images/test_0a9b81ce.jpg').resize((416, 416), Image.LANCZOS)
