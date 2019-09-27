@@ -138,4 +138,19 @@ class M2Det:
                 with tf.variable_scope('SFAM'):
                     attention = tf.reduce_mean(feature, axis=[1, 2], keepdims=True)
                     attention = tf.layers.dense(attention, units=64, activation=tf.nn.relu, name='fc1_{}'.format(i + 1))
-                    attention = tf.layers.dense(attention, units=1024, activation=tf.nn.relu)
+                    attention = tf.layers.dense(attention, units=1024, activation=tf.nn.sigmoid,
+                                                name='fc2_{}'.format(i + 1))
+                    feature = feature * attention
+
+                features.insert(0, feature)
+
+            all_cls = []
+            all_reg = []
+            with tf.variable_scope('prediction'):
+                for i, feature in enumerate(features):
+                    print(i + 1, feature.shape)
+                    cls = tf.layers.conv2d(feature, filters=self.num_priors * self.num_classes, kernel_size=3,
+                                           strides=1)
+                    cls = tf.layers.batch_normalization(cls, axis=3, momentum=0.997, epsilon=1e-5, center=True,
+                                                        scale=True, training=self.is_training)
+                    sh = cls.shape
