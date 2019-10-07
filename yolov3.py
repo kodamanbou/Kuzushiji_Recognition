@@ -5,6 +5,7 @@ import math
 import os
 import pandas as pd
 import tensorflow as tf
+import cv2
 
 input_dir = '../input/'
 df_translation = pd.read_csv(os.path.join(input_dir, 'unicode_translation.csv'))
@@ -41,6 +42,11 @@ def get_batch_data(line, class_num, anchors):
     h_ratio = image.height / 416.
     image = image.resize((416, 416))
     image = np.asarray(image, np.float32)
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    # preprocessing
+    image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
+    image = cv2.fastNlMeansDenoisingColored(image, None, 20, 20, 7, 21)
+
     cols = str(line[1].decode()).strip().split(' ')
 
     labels = []
