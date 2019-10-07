@@ -425,4 +425,8 @@ if __name__ == '__main__':
             sess.run(train_init_op)
 
             for i in range(train_batch_num):
-                _, loss_value = sess.run([train_op, total_loss], feed_dict={is_training: True})
+                _, _y_pred, loss_value, _global_step = sess.run([train_op, y_pred, total_loss, global_step],
+                                                                feed_dict={is_training: True})
+
+                if _global_step % 1000 == 0:
+                    print('Global Step: {} \ttotal_loss: {}'.format(_global_step, loss_value))
