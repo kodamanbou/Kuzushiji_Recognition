@@ -236,8 +236,8 @@ def upsample_layer(inputs, out_shape):
 # YOLO-v3.
 class Graph:
     def __init__(self, class_num, anchors, use_label_smooth=False, use_focal_loss=False):
-        self.class_num = class_num
         self.anchors = anchors
+        self.class_num = class_num
         self.use_label_smooth = use_label_smooth
         self.use_focal_loss = use_focal_loss
 
@@ -460,8 +460,8 @@ class Graph:
 if __name__ == '__main__':
     print('Training start')
 
-    batch_size = 6
     class_num = 1
+    batch_size = 6
     anchors = [[7, 7], [5, 13], [12, 7],
                [9, 12], [13, 11], [18, 9],
                [15, 15], [19, 12], [23, 17]]
