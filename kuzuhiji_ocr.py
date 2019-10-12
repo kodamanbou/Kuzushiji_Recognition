@@ -295,6 +295,10 @@ if __name__ == '__main__':
 
     total_loss = loss_xy_60 + loss_wh_60 + loss_conf_60 + loss_xy_30 + loss_wh_30 + loss_conf_30
 
+    pred_boxes_60, conf_60 = predict(y_pred_60)
+    pred_boxes_30, conf_30 = predict(y_pred_30)
+    pred_boxes = tf.concat([pred_boxes_60, pred_boxes_30], axis=-1)
+
     global_step = tf.Variable(0, trainable=False, name='global_step')
     train_var = tf.trainable_variables
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -317,8 +321,9 @@ if __name__ == '__main__':
         for epoch in range(15):
             sess.run(train_init_op)
             for i in range(train_batch_num):
-                _, _total_loss, _global_step = sess.run([train_op, total_loss, global_step])
+                _, _total_loss, _pred_boxes, _global_step = sess.run([train_op, total_loss, pred_boxes, global_step])
 
                 if _global_step % 1000 == 0:
-                    print('global step: {}\ttotal loss: {}'.format(_global_step, _total_loss))
+                    print('global step: {}\ttotal loss: {}\tbox_num: {}'.format(_global_step, _total_loss,
+                                                                                len(_pred_boxes)))
                     saver.save(sess, 'ocr_model.ckpt')
