@@ -321,3 +321,4 @@ if __name__ == '__main__':
 
                 if _global_step % 1000 == 0:
                     print('global step: {}\ttotal loss: {}'.format(_global_step, _total_loss))
+                    saver.save(sess, 'ocr_model.ckpt')
