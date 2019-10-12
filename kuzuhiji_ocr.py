@@ -7,12 +7,15 @@ import os
 import math
 
 
-def get_batch_data(line, prepro=False):
+def get_batch_data(line, prepro=True):
     filename = str(line[0].decode())
     image = cv2.cvtColor(cv2.imread(input_dir + 'train_images/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
     if prepro:
         image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
         image = cv2.fastNlMeansDenoisingColored(image, None, 20, 20, 7, 21)
+
+    ratio_h = image.shape[0] / image_h
+    ratio_w = image.shape[1] / image_w
 
     image = cv2.resize(image, (image_h, image_w))
     image = image / 255.
@@ -20,10 +23,10 @@ def get_batch_data(line, prepro=False):
     cols = str(line[1].decode()).strip().split()
     boxes = []
     for i in range(len(cols) // 5):
-        xmin = float(cols[i * 5 + 1])
-        ymin = float(cols[i * 5 + 2])
-        xmax = xmin + float(cols[i * 5 + 3])
-        ymax = ymin + float(cols[i * 5 + 4])
+        xmin = float(cols[i * 5 + 1]) / ratio_w
+        ymin = float(cols[i * 5 + 2]) / ratio_h
+        xmax = xmin + float(cols[i * 5 + 3]) / ratio_w
+        ymax = ymin + float(cols[i * 5 + 4]) / ratio_h
 
         boxes.append([xmin, ymin, xmax, ymax])
 
@@ -33,11 +36,11 @@ def get_batch_data(line, prepro=False):
     y_true_30 = np.zeros((30, 18, 5), np.float32)
     y_true = [y_true_60, y_true_30]
 
-    anchors = np.array([[36, 60], [18, 30]], np.float32)
-
     box_centers = (boxes[:, 0:2] + boxes[:, 2:4]) / 2
     box_sizes = boxes[:, 2:4] - boxes[:, 0:2]
-    box_sizes = tf.expand_dims(box_sizes, 1)
+    box_sizes = np.expand_dims(box_sizes, 1)
+
+    anchors = np.array([[36, 60], [18, 30]], np.float32)
 
     mins = np.maximum(-box_sizes / 2, -anchors / 2)
     maxs = np.minimum(box_sizes / 2, anchors / 2)
@@ -54,9 +57,9 @@ def get_batch_data(line, prepro=False):
         x = int(np.floor(box_centers[i, 0] / ratio_x))
         y = int(np.floor(box_centers[i, 1] / ratio_y))
 
-        y_true[idx][y, x, idx, 0] = 1.
-        y_true[idx][y, x, idx, 1:3] = box_centers[i]
-        y_true[idx][y, x, idx, 3:5] = box_sizes[i]
+        y_true[idx][y, x, 0] = 1.
+        y_true[idx][y, x, 1:3] = box_centers[i]
+        y_true[idx][y, x, 3:5] = box_sizes[i]
 
     return image, y_true_60, y_true_30
 
@@ -264,6 +267,7 @@ if __name__ == '__main__':
     image_w = 448
     batch_size = 3
     input_dir = '../input/'
+
     is_training = tf.placeholder_with_default(False, shape=None, name='is_training')
     df_train = pd.read_csv(os.path.join(input_dir, 'train.csv'))
     df_train.dropna(inplace=True)
@@ -273,7 +277,7 @@ if __name__ == '__main__':
     train_dataset = tf.data.Dataset.from_tensor_slices(df_train.values)
     train_dataset = train_dataset.map(
         lambda x: tf.py_func(get_batch_data,
-                             inp=[x, True],
+                             inp=[x],
                              Tout=[tf.float32, tf.float32, tf.float32]),
         num_parallel_calls=16
     )
@@ -295,7 +299,7 @@ if __name__ == '__main__':
 
     total_loss = loss_xy_60 + loss_wh_60 + loss_conf_60 + loss_xy_30 + loss_wh_30 + loss_conf_30
 
-    pred_boxes = predict([y_pred_60, y_pred_30])
+    pred_boxes, pred_confs = predict([y_pred_60, y_pred_30])
 
     global_step = tf.Variable(0, trainable=False, name='global_step')
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
