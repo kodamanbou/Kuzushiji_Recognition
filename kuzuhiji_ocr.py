@@ -18,6 +18,7 @@ def get_batch_data(line, prepro=True):
     ratio_w = image.shape[1] / image_w
 
     image = cv2.resize(image, (image_h, image_w))
+    image = np.asarray(image, np.float32)
     image = image / 255.
 
     cols = str(line[1].decode()).strip().split()
