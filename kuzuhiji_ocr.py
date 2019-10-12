@@ -9,7 +9,7 @@ import math
 
 def get_batch_data(line, prepro=False):
     filename = str(line[0].decode())
-    image = cv2.cvtColor(cv2.imread(os.path.join(input_dir, filename + '.jpg')), cv2.COLOR_BGR2RGB)
+    image = cv2.cvtColor(cv2.imread(input_dir + 'train_images/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
     if prepro:
         image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
         image = cv2.fastNlMeansDenoisingColored(image, None, 20, 20, 7, 21)
@@ -260,8 +260,8 @@ def box_iou(pred_boxes, valid_true_boxes):
 
 
 if __name__ == '__main__':
-    image_h = 728.
-    image_w = 448.
+    image_h = 728
+    image_w = 448
     batch_size = 3
     input_dir = '../input/'
     is_training = tf.placeholder_with_default(False, shape=None, name='is_training')
