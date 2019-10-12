@@ -9,7 +9,7 @@ import math
 
 def get_batch_data(line, prepro=False):
     filename = str(line[0].decode())
-    image = cv2.cvtColor(cv2.imread(filename), cv2.COLOR_BGR2RGB)
+    image = cv2.cvtColor(cv2.imread(os.path.join(input_dir, filename + '.jpg')), cv2.COLOR_BGR2RGB)
     if prepro:
         image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
         image = cv2.fastNlMeansDenoisingColored(image, None, 20, 20, 7, 21)
@@ -148,7 +148,7 @@ def predict(feature_maps):
 
 def reorg(feature_map):
     grid_size = tf.shape(feature_map)[1:3]
-    image_size = tf.cast([image_h, image_w], tf.float32)
+    image_size = tf.cast([image_h, image_w], tf.int32)
     ratio = tf.cast(image_size / grid_size, tf.float32)
 
     grid_x = tf.range(grid_size[1], dtype=tf.int32)
@@ -175,7 +175,7 @@ def compute_loss(y_pred, y_true):
     # Compute loss each layer.
     N = tf.cast(tf.shape(y_pred)[0], tf.float32)
     grid_size = tf.shape(y_pred)[1:3]
-    image_size = tf.cast([image_h, image_w], tf.float32)
+    image_size = tf.cast([image_h, image_w], tf.int32)
     ratio = tf.cast(image_size / grid_size, tf.float32)
 
     xy_offset, pred_boxes, conf_logits = reorg(y_pred)
@@ -295,17 +295,14 @@ if __name__ == '__main__':
 
     total_loss = loss_xy_60 + loss_wh_60 + loss_conf_60 + loss_xy_30 + loss_wh_30 + loss_conf_30
 
-    pred_boxes_60, conf_60 = predict(y_pred_60)
-    pred_boxes_30, conf_30 = predict(y_pred_30)
-    pred_boxes = tf.concat([pred_boxes_60, pred_boxes_30], axis=-1)
+    pred_boxes = predict([y_pred_60, y_pred_30])
 
     global_step = tf.Variable(0, trainable=False, name='global_step')
-    train_var = tf.trainable_variables
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
         opt = tf.train.AdamOptimizer(learning_rate=1e-3)
-        grads = tf.gradients(total_loss, train_var)
-        train_op = opt.apply_gradients(zip(grads, train_var), global_step=global_step)
+        grads_and_vars = opt.compute_gradients(total_loss)
+        train_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
 
     init_op = tf.global_variables_initializer()
     saver = tf.train.Saver()
