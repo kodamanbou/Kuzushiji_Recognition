@@ -100,7 +100,7 @@ def ocr_network(input, is_training):
     dense8 = tf.layers.dense(dense5, units=2, activation=tf.nn.sigmoid)
     dense9 = tf.layers.dense(dense6, units=2, activation=tf.nn.sigmoid)
 
-    concat1 = tf.concat([dense7, dense8, dense9], axis=3)  # [N, 60, 36, 5]
+    concat1 = tf.concat([dense7, dense8, dense9], axis=-1)  # [N, 60, 36, 5]
 
     dense10 = tf.layers.dense(dropout4, units=128, activation=tf.nn.relu)
     dense11 = tf.layers.dense(dropout4, units=128, activation=tf.nn.relu)
@@ -114,7 +114,7 @@ def ocr_network(input, is_training):
     dense17 = tf.layers.dense(dense14, units=2, activation=tf.nn.sigmoid)
     dense18 = tf.layers.dense(dense15, units=2, activation=tf.nn.sigmoid)
 
-    concat2 = tf.concat([dense16, dense17, dense18], axis=3)  # [N, 30, 18, 5]
+    concat2 = tf.concat([dense16, dense17, dense18], axis=-1)  # [N, 30, 18, 5]
 
     return concat1, concat2
 
@@ -323,7 +323,8 @@ if __name__ == '__main__':
         for epoch in range(15):
             sess.run(train_init_op)
             for i in range(train_batch_num):
-                _, _total_loss, _pred_boxes, _global_step = sess.run([train_op, total_loss, pred_boxes, global_step])
+                _, _total_loss, _pred_boxes, _global_step = sess.run([train_op, total_loss, pred_boxes, global_step],
+                                                                     feed_dict={is_training: True})
 
                 if _global_step % 1000 == 0:
                     print('global step: {}\ttotal loss: {}\tbox_num: {}'.format(_global_step, _total_loss,
