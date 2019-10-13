@@ -170,7 +170,7 @@ def reorg(feature_map):
     box_sizes = tf.exp(box_sizes) * ratio[::-1]
 
     boxes = tf.concat([box_centers, box_sizes], axis=-1)
-    conf_logits = feature_map[..., 0]
+    conf_logits = feature_map[..., 0:1]
 
     return xy_offset, boxes, conf_logits
 
