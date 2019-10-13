@@ -33,15 +33,15 @@ def get_batch_data(line, prepro=True):
 
     boxes = np.asarray(boxes, np.float32)
 
-    y_true_60 = np.zeros((60, 36, 5), np.float32)
-    y_true_30 = np.zeros((30, 18, 5), np.float32)
-    y_true = [y_true_60, y_true_30]
+    y_true_l = np.zeros((26, 16, 5), np.float32)
+    y_true_s = np.zeros((13, 8, 5), np.float32)
+    y_true = [y_true_l, y_true_s]
 
     box_centers = (boxes[:, 0:2] + boxes[:, 2:4]) / 2
     box_sizes = boxes[:, 2:4] - boxes[:, 0:2]
     box_sizes = np.expand_dims(box_sizes, 1)
 
-    anchors = np.array([[36, 60], [18, 30]], np.float32)
+    anchors = np.array([[16, 26], [8, 13]], np.float32)
 
     mins = np.maximum(-box_sizes / 2, -anchors / 2)
     maxs = np.minimum(box_sizes / 2, anchors / 2)
@@ -62,11 +62,11 @@ def get_batch_data(line, prepro=True):
         y_true[idx][y, x, 2:4] = box_sizes[i]
         y_true[idx][y, x, 4] = 1.
 
-    return image, y_true_60, y_true_30
+    return image, y_true_l, y_true_s
 
 
-def conv2d(input, filters, kernel_size, strides):
-    conv = tf.layers.conv2d(input, filters=filters, kernel_size=kernel_size, strides=strides, padding='same',
+def conv2d(input, filters, kernel_size, strides, padding='same'):
+    conv = tf.layers.conv2d(input, filters=filters, kernel_size=kernel_size, strides=strides, padding=padding,
                             activation=tf.nn.relu)
     return conv
 
@@ -80,17 +80,17 @@ def ocr_network(input, is_training):
     dropout1 = tf.layers.dropout(pool1, rate=0.25, training=is_training)
 
     conv4 = conv2d(conv3, 64, 3, 1)
-    conv5 = conv2d(dropout1, 128, 8, 6)  # [N, 60, 36, 128]
+    conv5 = conv2d(dropout1, 128, 12, 14)  # [N, 26, 16, 128]
 
     pool2 = tf.layers.max_pooling2d(conv4, pool_size=2, strides=2)  # [N, 182, 112, 64]
-    dropout2 = tf.layers.dropout(conv5, rate=0.5, training=is_training)  # [N, 60, 36, 128]
+    dropout2 = tf.layers.dropout(conv5, rate=0.5, training=is_training)  # [N, 26, 16, 128]
 
     dropout3 = tf.layers.dropout(pool2, rate=0.25, training=is_training)
     dense1 = tf.layers.dense(dropout2, units=128, activation=tf.nn.relu)
     dense2 = tf.layers.dense(dropout2, units=128, activation=tf.nn.relu)
     dense3 = tf.layers.dense(dropout2, units=128, activation=tf.nn.relu)
 
-    conv6 = conv2d(dropout3, 128, 5, 6)  # [N, 30, 18, 128]
+    conv6 = conv2d(dropout3, 128, 12, 14)  # [N, 13, 8, 128]
     dense4 = tf.layers.dense(dense1, units=64, activation=tf.nn.relu)
     dense5 = tf.layers.dense(dense2, units=64, activation=tf.nn.relu)
     dense6 = tf.layers.dense(dense3, units=64, activation=tf.nn.relu)
@@ -100,7 +100,7 @@ def ocr_network(input, is_training):
     dense8 = tf.layers.dense(dense5, units=2, activation=tf.nn.sigmoid)
     dense9 = tf.layers.dense(dense6, units=2, activation=tf.nn.sigmoid)
 
-    concat1 = tf.concat([dense7, dense8, dense9], axis=-1)  # [N, 60, 36, 5]
+    concat1 = tf.concat([dense7, dense8, dense9], axis=-1)  # [N, 26, 16, 5]
 
     dense10 = tf.layers.dense(dropout4, units=128, activation=tf.nn.relu)
     dense11 = tf.layers.dense(dropout4, units=128, activation=tf.nn.relu)
@@ -114,7 +114,7 @@ def ocr_network(input, is_training):
     dense17 = tf.layers.dense(dense14, units=2, activation=tf.nn.sigmoid)
     dense18 = tf.layers.dense(dense15, units=2, activation=tf.nn.sigmoid)
 
-    concat2 = tf.concat([dense16, dense17, dense18], axis=-1)  # [N, 30, 18, 5]
+    concat2 = tf.concat([dense16, dense17, dense18], axis=-1)  # [N, 13, 8, 5]
 
     return concat1, concat2
 
@@ -184,7 +184,7 @@ def compute_loss(y_pred, y_true):
 
     xy_offset, pred_boxes, conf_logits = reorg(y_pred)
 
-    object_mask = y_true[..., 4:5]  # [N, 60, 36, 1]
+    object_mask = y_true[..., 4:5]  # [N, 26, 16, 1]
     ignore_mask = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
 
     def loop_cond(idx, ignore_mask):
@@ -193,7 +193,7 @@ def compute_loss(y_pred, y_true):
     def loop_body(idx, ignore_mask):
         valid_true_boxes = tf.boolean_mask(y_true[idx, ..., 0:4], tf.cast(object_mask[idx, ..., 0], 'bool'))
         iou = box_iou(pred_boxes[idx], valid_true_boxes)
-        best_iou = tf.reduce_max(iou, axis=-1)  # [60, 36, 1]
+        best_iou = tf.reduce_max(iou, axis=-1)  # [26, 16, 1]
 
         ignore_mask_tmp = tf.cast(best_iou < 0.5, tf.float32)
         ignore_mask = ignore_mask.write(idx, ignore_mask_tmp)
@@ -201,7 +201,7 @@ def compute_loss(y_pred, y_true):
 
     _, ignore_mask = tf.while_loop(cond=loop_cond, body=loop_body, loop_vars=[0, ignore_mask])
     ignore_mask = ignore_mask.stack()
-    ignore_mask = tf.expand_dims(ignore_mask, -1)  # [N, 60, 36, 1]
+    ignore_mask = tf.expand_dims(ignore_mask, -1)  # [N, 26, 16, 1]
 
     pred_box_xy = pred_boxes[..., 0:2]
     pred_box_wh = pred_boxes[..., 2:4]
@@ -289,18 +289,18 @@ if __name__ == '__main__':
     iterator = tf.data.Iterator.from_structure(train_dataset.output_types, train_dataset.output_shapes)
     train_init_op = iterator.make_initializer(train_dataset)
 
-    image, y_true_60, y_true_30 = iterator.get_next()
+    image, y_true_l, y_true_s = iterator.get_next()
     image.set_shape([None, None, None, 3])
-    y_true_60.set_shape([None, None, None])
-    y_true_30.set_shape([None, None, None])
+    y_true_l.set_shape([None, None, None])
+    y_true_s.set_shape([None, None, None])
 
-    y_pred_60, y_pred_30 = ocr_network(image, is_training=is_training)
-    loss_xy_60, loss_wh_60, loss_conf_60 = compute_loss(y_pred_60, y_true_60)
-    loss_xy_30, loss_wh_30, loss_conf_30 = compute_loss(y_pred_30, y_true_30)
+    y_pred_l, y_pred_s = ocr_network(image, is_training=is_training)
+    loss_xy_l, loss_wh_l, loss_conf_l = compute_loss(y_pred_l, y_true_l)
+    loss_xy_s, loss_wh_s, loss_conf_s = compute_loss(y_pred_s, y_true_s)
 
-    total_loss = loss_xy_60 + loss_wh_60 + loss_conf_60 + loss_xy_30 + loss_wh_30 + loss_conf_30
+    total_loss = loss_xy_l + loss_wh_l + loss_conf_l + loss_xy_s + loss_wh_s + loss_conf_s
 
-    pred_boxes, pred_confs = predict([y_pred_60, y_pred_30])
+    pred_boxes, pred_confs = predict([y_pred_l, y_pred_s])
 
     global_step = tf.Variable(0, trainable=False, name='global_step')
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
