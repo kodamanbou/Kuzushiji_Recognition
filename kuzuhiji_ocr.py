@@ -163,14 +163,14 @@ def reorg(feature_map):
     xy_offset = tf.concat([x_offset, y_offset], axis=-1)
     xy_offset = tf.cast(tf.reshape(xy_offset, shape=[grid_size[0], grid_size[1], 1, 2]), tf.float32)
 
-    box_centers = feature_map[..., 1:3] + xy_offset
+    conf_logits, box_centers, box_sizes = tf.split(feature_map, [1, 2, 2], axis=-1)
+
+    box_centers = box_centers + xy_offset
     box_centers = box_centers * ratio[::-1]
 
-    box_sizes = feature_map[..., 3:5]
     box_sizes = tf.exp(box_sizes) * ratio[::-1]
 
     boxes = tf.concat([box_centers, box_sizes], axis=-1)
-    conf_logits = feature_map[..., 0:1]
 
     return xy_offset, boxes, conf_logits
 
