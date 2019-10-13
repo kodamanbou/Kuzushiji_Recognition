@@ -58,9 +58,9 @@ def get_batch_data(line, prepro=True):
         x = int(np.floor(box_centers[i, 0] / ratio_x))
         y = int(np.floor(box_centers[i, 1] / ratio_y))
 
-        y_true[idx][y, x, 0] = 1.
-        y_true[idx][y, x, 1:3] = box_centers[i]
-        y_true[idx][y, x, 3:5] = box_sizes[i]
+        y_true[idx][y, x, 0:2] = box_centers[i]
+        y_true[idx][y, x, 2:4] = box_sizes[i]
+        y_true[idx][y, x, 4] = 1.
 
     return image, y_true_60, y_true_30
 
