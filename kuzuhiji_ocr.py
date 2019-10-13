@@ -184,7 +184,7 @@ def compute_loss(y_pred, y_true):
 
     xy_offset, pred_boxes, conf_logits = reorg(y_pred)
 
-    object_mask = y_true[..., 4:5]  # [N, 26, 16, 1]
+    object_mask = y_true[..., 4]  # [N, 26, 16, 1]
     ignore_mask = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
 
     def loop_cond(idx, ignore_mask):
@@ -291,8 +291,8 @@ if __name__ == '__main__':
 
     image, y_true_l, y_true_s = iterator.get_next()
     image.set_shape([None, None, None, 3])
-    y_true_l.set_shape([None, None, None])
-    y_true_s.set_shape([None, None, None])
+    y_true_l.set_shape([None, None, None, None])
+    y_true_s.set_shape([None, None, None, None])
 
     y_pred_l, y_pred_s = ocr_network(image, is_training=is_training)
     loss_xy_l, loss_wh_l, loss_conf_l = compute_loss(y_pred_l, y_true_l)
