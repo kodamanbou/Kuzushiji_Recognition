@@ -163,6 +163,7 @@ def reorg(feature_map):
     xy_offset = tf.concat([x_offset, y_offset], axis=-1)
     xy_offset = tf.cast(tf.reshape(xy_offset, shape=[grid_size[0], grid_size[1], 1, 2]), tf.float32)
 
+    feature_map = tf.reshape(feature_map, [-1, grid_size[0], grid_size[1], 5])
     conf_logits, box_centers, box_sizes = tf.split(feature_map, [1, 2, 2], axis=-1)
 
     box_centers = box_centers + xy_offset
@@ -241,7 +242,7 @@ def compute_loss(y_pred, y_true):
 def box_iou(pred_boxes, valid_true_boxes):
     pred_boxes_xy = pred_boxes[..., 0:2]
     pred_boxes_wh = pred_boxes[..., 2:4]
-    pred_boxes_xy = tf.expand_dims(pred_boxes_xy, -2)  # [60, 36, 1, 2]
+    pred_boxes_xy = tf.expand_dims(pred_boxes_xy, -2)  # [26, 16, 1, 2]
     pred_boxes_wh = tf.expand_dims(pred_boxes_wh, -2)
 
     true_box_xy = valid_true_boxes[:, 0:2]
