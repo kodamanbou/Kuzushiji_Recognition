@@ -7,12 +7,28 @@ import os
 import math
 
 
-def get_batch_data(line, prepro=False):
-    filename = str(line[0].decode())
-    image = cv2.cvtColor(cv2.imread(input_dir + 'train_images/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
-    if prepro:
+def create_dataset():
+    if os.path.exists('dataset'):
+        return
+    else:
+        os.mkdir('dataset')
+
+    for f in os.listdir(os.path.join(input_dir, 'train_images')):
+        image = cv2.cvtColor(cv2.imread(input_dir + 'train_images/' + f), cv2.COLOR_BGR2RGB)
         image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
         image = cv2.fastNlMeansDenoisingColored(image, None, 20, 20, 7, 21)
+        cv2.imwrite(os.path.join('dataset', f), image)
+        print(f, ' done.')
+
+
+def get_batch_data(line, prepro=False):
+    filename = str(line[0].decode())
+    if prepro:
+        image = cv2.cvtColor(cv2.imread('dataset/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
+        image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
+        image = cv2.fastNlMeansDenoisingColored(image, None, 20, 20, 7, 21)
+    else:
+        image = cv2.cvtColor(cv2.imread(input_dir + 'train_images/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
 
     ratio_h = image.shape[0] / image_h
     ratio_w = image.shape[1] / image_w
@@ -269,6 +285,9 @@ if __name__ == '__main__':
     batch_size = 3
     input_dir = '../input/'
 
+    # preprocessing.
+    create_dataset()
+
     is_training = tf.placeholder_with_default(False, shape=None, name='is_training')
     df_train = pd.read_csv(os.path.join(input_dir, 'train.csv'))
     df_train.dropna(inplace=True)
@@ -278,7 +297,7 @@ if __name__ == '__main__':
     train_dataset = tf.data.Dataset.from_tensor_slices(df_train.values)
     train_dataset = train_dataset.map(
         lambda x: tf.py_func(get_batch_data,
-                             inp=[x],
+                             inp=[x, True],
                              Tout=[tf.float32, tf.float32, tf.float32]),
         num_parallel_calls=16
     )
