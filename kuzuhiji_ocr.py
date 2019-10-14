@@ -291,8 +291,8 @@ if __name__ == '__main__':
 
     image, y_true_l, y_true_s = iterator.get_next()
     image.set_shape([None, None, None, 3])
-    y_true_l.set_shape([None, None, None, 5])
-    y_true_s.set_shape([None, None, None, 5])
+    y_true_l.set_shape([None, 26, 16, 5])
+    y_true_s.set_shape([None, 13, 8, 5])
 
     y_pred_l, y_pred_s = ocr_network(image, is_training=is_training)
     loss_xy_l, loss_wh_l, loss_conf_l = compute_loss(y_pred_l, y_true_l)
