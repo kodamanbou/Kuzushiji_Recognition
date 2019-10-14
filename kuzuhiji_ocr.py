@@ -20,13 +20,19 @@ def create_dataset():
         cv2.imwrite(os.path.join('dataset', f), image)
         print(f, ' done.')
 
+    os.makedirs('dataset/validate')
+    for f in os.listdir(os.path.join(input_dir, 'test_images')):
+        image = cv2.cvtColor(cv2.imread(input_dir + 'test_images/' + f), cv2.COLOR_BGR2RGB)
+        image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
+        image = cv2.fastNlMeansDenoisingColored(image, None, 20, 20, 7, 21)
+        cv2.imwrite(os.path.join('dataset/validate', f), image)
+        print(f, ' done.')
+
 
 def get_batch_data(line, prepro=False):
     filename = str(line[0].decode())
     if prepro:
         image = cv2.cvtColor(cv2.imread('dataset/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
-        image = cv2.addWeighted(image, 4, cv2.GaussianBlur(image, (0, 0), 10), -4, 128)
-        image = cv2.fastNlMeansDenoisingColored(image, None, 20, 20, 7, 21)
     else:
         image = cv2.cvtColor(cv2.imread(input_dir + 'train_images/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
 
@@ -79,6 +85,22 @@ def get_batch_data(line, prepro=False):
         y_true[idx][y, x, 4] = 1.
 
     return image, y_true_l, y_true_s
+
+
+def get_val_data(filename, prepro=False):
+    if prepro:
+        image = cv2.cvtColor(cv2.imread('dataset/validate/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
+    else:
+        image = cv2.cvtColor(cv2.imread(input_dir + 'test_images/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
+
+    image = cv2.resize(image, (image_w, image_h))
+    image = np.asarray(image, np.float32)
+    image = image / 255.
+
+    image_id = filename.split('.')[0]
+    image_id = tf.cast(image_id, tf.string)
+
+    return image, image_id
 
 
 def conv2d(input, filters, kernel_size, strides, padding='same'):
@@ -328,6 +350,21 @@ if __name__ == '__main__':
         grads_and_vars = opt.compute_gradients(total_loss)
         train_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
 
+    # validation.
+    val_dataset = tf.data.Dataset.from_tensor_slices(os.listdir(os.path.join(input_dir, 'test_images')))
+    val_dataset = val_dataset.map(
+        lambda x: tf.py_func(get_val_data,
+                             inp=[x, True],
+                             Tout=[tf.float32, tf.string]),
+        num_parallel_calls=16
+    )
+    val_dataset = val_dataset.shuffle(4150)
+    val_dataset = val_dataset.batch(batch_size)
+    val_dataset = val_dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+    val_iterator = tf.data.Iterator.from_structure(val_dataset.output_types, val_dataset.output_shapes)
+    val_init_op = val_iterator.make_initializer(val_dataset)
+    val_image, val_image_id = val_iterator.get_next()
+
     init_op = tf.global_variables_initializer()
     saver = tf.train.Saver()
 
@@ -347,5 +384,7 @@ if __name__ == '__main__':
 
                 if _global_step % 1000 == 0:
                     print('global step: {}\ttotal loss: {}\tbox_num: {}'.format(_global_step, _total_loss,
-                                                                                len(_pred_boxes)))
+                                                                                len(np.where(_pred_boxes > 0.45)[0])))
                     saver.save(sess, 'ocr_model.ckpt')
+
+        sess.run(val_init_op)
