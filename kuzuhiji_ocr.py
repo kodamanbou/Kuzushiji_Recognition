@@ -7,7 +7,7 @@ import os
 import math
 
 
-def get_batch_data(line, prepro=True):
+def get_batch_data(line, prepro=False):
     filename = str(line[0].decode())
     image = cv2.cvtColor(cv2.imread(input_dir + 'train_images/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
     if prepro:
@@ -17,7 +17,7 @@ def get_batch_data(line, prepro=True):
     ratio_h = image.shape[0] / image_h
     ratio_w = image.shape[1] / image_w
 
-    image = cv2.resize(image, (image_h, image_w))
+    image = cv2.resize(image, (image_w, image_h))
     image = np.asarray(image, np.float32)
     image = image / 255.
 
@@ -161,9 +161,8 @@ def reorg(feature_map):
     x_offset = tf.reshape(grid_x, (-1, 1))
     y_offset = tf.reshape(grid_y, (-1, 1))
     xy_offset = tf.concat([x_offset, y_offset], axis=-1)
-    xy_offset = tf.cast(tf.reshape(xy_offset, shape=[grid_size[0], grid_size[1], 1, 2]), tf.float32)
+    xy_offset = tf.cast(tf.reshape(xy_offset, shape=[grid_size[0], grid_size[1], 2]), tf.float32)
 
-    feature_map = tf.reshape(feature_map, [-1, grid_size[0], grid_size[1], 5])
     conf_logits, box_centers, box_sizes = tf.split(feature_map, [1, 2, 2], axis=-1)
 
     box_centers = box_centers + xy_offset
@@ -292,8 +291,8 @@ if __name__ == '__main__':
 
     image, y_true_l, y_true_s = iterator.get_next()
     image.set_shape([None, None, None, 3])
-    y_true_l.set_shape([None, 26, 16, 5])
-    y_true_s.set_shape([None, 13, 8, 5])
+    y_true_l.set_shape([None, None, None, None])
+    y_true_s.set_shape([None, None, None, None])
 
     y_pred_l, y_pred_s = ocr_network(image, is_training=is_training)
     loss_xy_l, loss_wh_l, loss_conf_l = compute_loss(y_pred_l, y_true_l)
