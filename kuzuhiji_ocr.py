@@ -88,17 +88,18 @@ def get_batch_data(line, prepro=False):
 
 
 def get_val_data(filename, prepro=False):
+    filename = str(filename.decode())
     if prepro:
-        image = cv2.cvtColor(cv2.imread('dataset/validate/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
+        image = cv2.cvtColor(cv2.imread('dataset/validate/' + filename), cv2.COLOR_BGR2RGB)
     else:
-        image = cv2.cvtColor(cv2.imread(input_dir + 'test_images/' + filename + '.jpg'), cv2.COLOR_BGR2RGB)
+        image = cv2.cvtColor(cv2.imread(input_dir + 'test_images/' + filename), cv2.COLOR_BGR2RGB)
 
     image = cv2.resize(image, (image_w, image_h))
     image = np.asarray(image, np.float32)
     image = image / 255.
 
     image_id = filename.split('.')[0]
-    image_id = tf.cast(image_id, tf.string)
+    image_id = np.char.encode(image_id, encoding='utf-8')
 
     return image, image_id
 
@@ -351,6 +352,7 @@ if __name__ == '__main__':
         train_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
 
     # validation.
+    val_batch_num = int(math.ceil(float(4150 / batch_size)))
     val_dataset = tf.data.Dataset.from_tensor_slices(os.listdir(os.path.join(input_dir, 'test_images')))
     val_dataset = val_dataset.map(
         lambda x: tf.py_func(get_val_data,
@@ -364,6 +366,11 @@ if __name__ == '__main__':
     val_iterator = tf.data.Iterator.from_structure(val_dataset.output_types, val_dataset.output_shapes)
     val_init_op = val_iterator.make_initializer(val_dataset)
     val_image, val_image_id = val_iterator.get_next()
+    val_image.set_shape([None, None, None, 3])
+    val_image_id.set_shape((None,))
+
+    val_pred_l, val_pred_s = ocr_network(val_image, is_training=is_training)
+    val_boxes, val_confs = predict([val_pred_l, val_pred_s])
 
     init_op = tf.global_variables_initializer()
     saver = tf.train.Saver()
@@ -376,7 +383,7 @@ if __name__ == '__main__':
 
     with tf.Session(config=config) as sess:
         sess.run(init_op)
-        for epoch in range(15):
+        for epoch in range(30):
             sess.run(train_init_op)
             for i in range(train_batch_num):
                 _, _total_loss, _pred_boxes, _global_step = sess.run([train_op, total_loss, pred_boxes, global_step],
@@ -388,3 +395,6 @@ if __name__ == '__main__':
                     saver.save(sess, 'ocr_model.ckpt')
 
         sess.run(val_init_op)
+        for i in range(val_batch_num):
+            _val_boxes, _val_confs, _val_image_id = sess.run([val_boxes, val_confs, val_image_id])
+            print(_val_boxes.shape)
