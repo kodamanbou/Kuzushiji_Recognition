@@ -358,6 +358,9 @@ if __name__ == '__main__':
     # preprocessing.
     create_dataset()
 
+    if not os.path.exists('results'):
+        os.mkdir('results')
+
     is_training = tf.placeholder_with_default(False, shape=None, name='is_training')
     df_train = pd.read_csv(os.path.join(input_dir, 'train.csv'))
     df_train.dropna(inplace=True)
@@ -432,7 +435,7 @@ if __name__ == '__main__':
 
     with tf.Session(config=config) as sess:
         sess.run(init_op)
-        for epoch in range(30):
+        for epoch in range(100):
             sess.run(train_init_op)
             for i in range(train_batch_num):
                 _, _total_loss, _pred_boxes, _pred_confs, _global_step = sess.run(
@@ -454,3 +457,5 @@ if __name__ == '__main__':
             plt.figure(figsize=(15, 15))
             plt.imshow(result_img)
             plt.show()
+
+            cv2.imwrite('results/result_{}.jpg'.format(i), result_img)
