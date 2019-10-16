@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+from PIL import Image, ImageDraw, ImageFont
 import pandas as pd
 import os
 import math
@@ -27,6 +28,24 @@ def create_dataset():
         image = cv2.fastNlMeansDenoisingColored(image, None, 20, 20, 7, 21)
         cv2.imwrite(os.path.join('dataset/validate', f), image)
         print(f, ' done.')
+
+
+def visualize(image_fn, boxes, scores, fontsize=20):
+    font = ImageFont.truetype('./NotoSansCJKjp-Regular.otf', size=fontsize, encoding='utf-8')
+    imsource = Image.open(image_fn).convert('RGBA').resize((image_w, image_h))
+    bbox_canvas = Image.new('RGBA', imsource.size)
+    char_canvas = Image.new('RGBA', imsource.size)
+    bbox_draw = ImageDraw.Draw(bbox_canvas)
+    char_draw = ImageDraw.Draw(char_canvas)
+
+    for i in range(len(boxes)):
+        xmin, ymin, xmax, ymax = boxes[i]
+        bbox_draw.rectangle((xmin, ymin, xmax, ymax), fill=(255, 255, 255, 0), outline=(255, 0, 0, 255))
+        char_draw.text((xmax + fontsize / 4, ymax / 2 - fontsize), str(scores[i]), fill=(0, 0, 255, 255), font=font)
+
+    imsource = Image.alpha_composite(Image.alpha_composite(imsource, bbox_canvas), char_canvas)
+    imsource = imsource.convert('RGB')
+    return np.asarray(imsource)
 
 
 def gpu_nms(boxes, scores, num_classes, max_boxes=1200, score_thresh=0.5, nms_thresh=0.5):
@@ -381,7 +400,7 @@ if __name__ == '__main__':
         train_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
 
     # validation.
-    val_batch_num = int(math.ceil(float(4150 / batch_size)))
+    val_batch_num = 4150
     val_dataset = tf.data.Dataset.from_tensor_slices(os.listdir(os.path.join(input_dir, 'test_images')))
     val_dataset = val_dataset.map(
         lambda x: tf.py_func(get_val_data,
@@ -390,7 +409,7 @@ if __name__ == '__main__':
         num_parallel_calls=16
     )
     val_dataset = val_dataset.shuffle(4150)
-    val_dataset = val_dataset.batch(batch_size)
+    val_dataset = val_dataset.batch(1)
     val_dataset = val_dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
     val_iterator = tf.data.Iterator.from_structure(val_dataset.output_types, val_dataset.output_shapes)
     val_init_op = val_iterator.make_initializer(val_dataset)
@@ -429,4 +448,9 @@ if __name__ == '__main__':
         sess.run(val_init_op)
         for i in range(val_batch_num):
             _val_boxes, _val_confs, _val_image_id = sess.run([val_boxes, val_confs, val_image_id])
-            print(_val_boxes.shape)
+            result_img = visualize(
+                input_dir + 'test_images/' + str(_val_image_id[0].decode()) + '.jpg',
+                _val_boxes, _val_confs)
+            plt.figure(figsize=(15, 15))
+            plt.imshow(result_img)
+            plt.show()
