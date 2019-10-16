@@ -400,7 +400,7 @@ if __name__ == '__main__':
 
     val_pred_l, val_pred_s = ocr_network(val_image, is_training=is_training)
     val_boxes, val_confs = predict([val_pred_l, val_pred_s])
-    val_boxes, val_confs = gpu_nms(val_boxes, val_confs, score_thresh=0.3, nms_thresh=0.45)
+    val_boxes, val_confs = gpu_nms(val_boxes, val_confs, num_classes=1, score_thresh=0.3, nms_thresh=0.45)
 
     init_op = tf.global_variables_initializer()
     saver = tf.train.Saver()
