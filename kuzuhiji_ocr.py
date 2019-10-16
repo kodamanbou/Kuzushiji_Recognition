@@ -29,6 +29,34 @@ def create_dataset():
         print(f, ' done.')
 
 
+def gpu_nms(boxes, scores, num_classes, max_boxes=1200, score_thresh=0.5, nms_thresh=0.5):
+    boxes_list, label_list, score_list = [], [], []
+    max_boxes = tf.constant(max_boxes, dtype='int32')
+
+    # since we do nms for single image, then reshape it
+    boxes = tf.reshape(boxes, [-1, 4])  # '-1' means we don't konw the exact number of boxes
+    score = tf.reshape(scores, [-1, num_classes])
+
+    # Step 1: Create a filtering mask based on "box_class_scores" by using "threshold".
+    mask = tf.greater_equal(score, tf.constant(score_thresh))
+    # Step 2: Do non_max_suppression for each class
+    for i in range(num_classes):
+        # Step 3: Apply the mask to scores, boxes and pick them out
+        filter_boxes = tf.boolean_mask(boxes, mask[:, i])
+        filter_score = tf.boolean_mask(score[:, i], mask[:, i])
+        nms_indices = tf.image.non_max_suppression(boxes=filter_boxes,
+                                                   scores=filter_score,
+                                                   max_output_size=max_boxes,
+                                                   iou_threshold=nms_thresh, name='nms_indices')
+        boxes_list.append(tf.gather(filter_boxes, nms_indices))
+        score_list.append(tf.gather(filter_score, nms_indices))
+
+    boxes = tf.concat(boxes_list, axis=0)
+    score = tf.concat(score_list, axis=0)
+
+    return boxes, score
+
+
 def get_batch_data(line, prepro=False):
     filename = str(line[0].decode())
     if prepro:
@@ -343,6 +371,7 @@ if __name__ == '__main__':
     total_loss = loss_xy_l + loss_wh_l + loss_conf_l + loss_xy_s + loss_wh_s + loss_conf_s
 
     pred_boxes, pred_confs = predict([y_pred_l, y_pred_s])
+    pred_boxes, pred_confs = gpu_nms(pred_boxes, pred_confs, num_classes=1, score_thresh=0.3, nms_thresh=0.45)
 
     global_step = tf.Variable(0, trainable=False, name='global_step')
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -371,6 +400,7 @@ if __name__ == '__main__':
 
     val_pred_l, val_pred_s = ocr_network(val_image, is_training=is_training)
     val_boxes, val_confs = predict([val_pred_l, val_pred_s])
+    val_boxes, val_confs = gpu_nms(val_boxes, val_confs, score_thresh=0.3, nms_thresh=0.45)
 
     init_op = tf.global_variables_initializer()
     saver = tf.train.Saver()
@@ -386,12 +416,14 @@ if __name__ == '__main__':
         for epoch in range(30):
             sess.run(train_init_op)
             for i in range(train_batch_num):
-                _, _total_loss, _pred_boxes, _global_step = sess.run([train_op, total_loss, pred_boxes, global_step],
-                                                                     feed_dict={is_training: True})
+                _, _total_loss, _pred_boxes, _pred_confs, _global_step = sess.run(
+                    [train_op, total_loss, pred_boxes, pred_confs, global_step],
+                    feed_dict={is_training: True})
 
                 if _global_step % 1000 == 0:
                     print('global step: {}\ttotal loss: {}\tbox_num: {}'.format(_global_step, _total_loss,
-                                                                                len(np.where(_pred_boxes > 0.45)[0])))
+                                                                                len(_pred_boxes)))
+                    print(_pred_boxes.shape)
                     saver.save(sess, 'ocr_model.ckpt')
 
         sess.run(val_init_op)
